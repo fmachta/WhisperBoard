@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import AVFoundation
 
 // MARK: - Keyboard Row Configuration
 struct KeyboardRow {
@@ -34,6 +35,18 @@ class KeyboardViewController: UIInputViewController {
     private var isCapsLock = false
     private var isDarkMode = false
     private var isNumberMode = false
+    
+    // MARK: - Audio Pipeline Properties
+    private var audioCapture: AudioCapture?
+    private var audioProcessor: AudioProcessor?
+    private var voiceActivityDetector: VoiceActivityDetector?
+    private var isRecording = false
+    private var recordingIndicator: UIView?
+    private var pulseLayer: CAShapeLayer?
+    private var micButton: KeyboardButton?
+    private var recordingDuration: TimeInterval = 0
+    private var recordingTimer: Timer?
+    private var audioPermissionChecked = false
     
     // MARK: - Keyboard Layout
     private let row1: [Key] = [
@@ -86,6 +99,7 @@ class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         setupKeyboard()
         observeAppearanceChanges()
+        setupAudioPipeline()
     }
     
     override func viewWillLayoutSubviews() {
@@ -113,6 +127,34 @@ class KeyboardViewController: UIInputViewController {
         ])
         
         buildKeyboard()
+    }
+    
+    private func setupAudioPipeline() {
+        print("[KeyboardViewController] Setting up audio pipeline...")
+        
+        // Initialize audio capture
+        audioCapture = AudioCapture(maxDuration: 30.0)
+        
+        // Initialize audio processor
+        audioProcessor = AudioProcessor()
+        
+        // Initialize VAD
+        voiceActivityDetector = VoiceActivityDetector()
+        
+        // Setup VAD callbacks
+        voiceActivityDetector?.onSpeechDetected = { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSpeechDetected()
+            }
+        }
+        
+        voiceActivityDetector?.onSilenceDetected = { [weak self] duration in
+            DispatchQueue.main.async {
+                self?.handleSilenceDetected(duration: duration)
+            }
+        }
+        
+        print("[KeyboardViewController] Audio pipeline initialized")
     }
     
     private func observeAppearanceChanges() {
@@ -361,27 +403,275 @@ class KeyboardViewController: UIInputViewController {
         rebuildKeyboard()
     }
     
-    private func handleMicButton(_ button: UIButton) {
-        // Mic button pressed - for Phase 1, just animate
-        // Phase 3 will implement actual recording
-        animateKeyPress(button)
+    private func handleMicButton(_ button: KeyboardButton) {
+        micButton = button
         
-        // Visual feedback for mic press
-        UIView.animate(withDuration: 0.1, animations: {
-            button.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
-        }) { _ in
-            UIView.animate(withDuration: 0.1) {
-                button.transform = .identity
-            }
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+    
+    private func startRecording() {
+        guard let capture = audioCapture, let vad = voiceActivityDetector else {
+            print("[KeyboardViewController] Audio pipeline not initialized")
+            showMicFeedback()
+            return
         }
         
-        // Show toast or feedback
-        showMicFeedback()
+        Task {
+            let hasPermission = await capture.checkPermission()
+            
+            await MainActor.run {
+                if hasPermission {
+                    do {
+                        try capture.start()
+                        isRecording = true
+                        vad.reset()
+                        startRecordingIndicator()
+                        startRecordingTimer()
+                        updateMicButtonForRecording()
+                        print("[KeyboardViewController] Recording started")
+                    } catch {
+                        print("[KeyboardViewController] Failed to start recording: \(error)")
+                        showMicFeedback()
+                    }
+                } else {
+                    showPermissionDeniedAlert()
+                }
+            }
+        }
+    }
+    
+    private func stopRecording() {
+        guard let capture = audioCapture else { return }
+        
+        capture.stop()
+        isRecording = false
+        stopRecordingIndicator()
+        stopRecordingTimer()
+        updateMicButtonForIdle()
+        
+        // Process recorded audio
+        if let audioData = capture.getAudioData() {
+            print("[KeyboardViewController] Processing \(audioData.count) bytes of audio")
+            // Phase 3 will send this to WhisperKit for transcription
+        }
+        
+        print("[KeyboardViewController] Recording stopped")
+    }
+    
+    // MARK: - Recording Indicator
+    
+    private func startRecordingIndicator() {
+        guard let micButton = micButton else { return }
+        
+        // Create recording indicator
+        recordingIndicator = UIView()
+        recordingIndicator?.backgroundColor = UIColor.systemRed
+        recordingIndicator?.layer.cornerRadius = 6
+        recordingIndicator?.translatesAutoresizingMaskIntoConstraints = false
+        
+        guard let indicator = recordingIndicator else { return }
+        view.addSubview(indicator)
+        
+        // Position indicator above mic button
+        if let buttonSuperview = micButton.superview {
+            NSLayoutConstraint.activate([
+                indicator.centerXAnchor.constraint(equalTo: micButton.centerXAnchor),
+                indicator.bottomAnchor.constraint(equalTo: buttonSuperview.topAnchor, constant: -4),
+                indicator.widthAnchor.constraint(equalToConstant: 12),
+                indicator.heightAnchor.constraint(equalToConstant: 12)
+            ])
+        }
+        
+        // Start pulsing animation
+        startPulseAnimation()
+    }
+    
+    private func startPulseAnimation() {
+        guard let indicator = recordingIndicator else { return }
+        
+        // Remove existing animation
+        pulseLayer?.removeAllAnimations()
+        
+        // Create pulse layer
+        pulseLayer = CAShapeLayer()
+        let pulseRect = CGRect(x: -10, y: -10, width: 32, height: 32)
+        pulseLayer?.path = UIBezierPath(ovalIn: pulseRect).cgPath
+        pulseLayer?.fillColor = UIColor.systemRed.withAlphaComponent(0.3).cgColor
+        pulseLayer?.position = CGPoint(x: 6, y: 6)
+        
+        guard let pulse = pulseLayer else { return }
+        indicator.layer.addSublayer(pulse)
+        
+        // Create scale animation
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.fromValue = 1.0
+        scaleAnimation.toValue = 2.5
+        scaleAnimation.duration = 1.0
+        scaleAnimation.repeatCount = .infinity
+        scaleAnimation.autoreverses = true
+        
+        // Create opacity animation
+        let opacityAnimation = CABasicAnimation(keyPath: "opacity")
+        opacityAnimation.fromValue = 0.8
+        opacityAnimation.toValue = 0.0
+        opacityAnimation.duration = 1.0
+        opacityAnimation.repeatCount = .infinity
+        opacityAnimation.autoreverses = true
+        
+        // Group animations
+        let groupAnimation = CAAnimationGroup()
+        groupAnimation.animations = [scaleAnimation, opacityAnimation]
+        groupAnimation.duration = 1.0
+        groupAnimation.repeatCount = .infinity
+        
+        pulse.add(groupAnimation, forKey: "pulse")
+    }
+    
+    private func stopRecordingIndicator() {
+        pulseLayer?.removeAllAnimations()
+        pulseLayer?.removeFromSuperlayer()
+        pulseLayer = nil
+        
+        recordingIndicator?.removeFromSuperview()
+        recordingIndicator = nil
+    }
+    
+    private func updateMicButtonForRecording() {
+        guard let micButton = micButton else { return }
+        
+        let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        let stopImage = UIImage(systemName: "stop.fill", withConfiguration: config)
+        micButton.setImage(stopImage, for: .normal)
+        
+        // Add red glow
+        micButton.layer.shadowColor = UIColor.systemRed.cgColor
+        micButton.layer.shadowOffset = CGSize(width: 0, height: 0)
+        micButton.layer.shadowOpacity = 0.8
+        micButton.layer.shadowRadius = 10
+    }
+    
+    private func updateMicButtonForIdle() {
+        guard let micButton = micButton else { return }
+        
+        let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        let micImage = UIImage(systemName: "mic.fill", withConfiguration: config)
+        micButton.setImage(micImage, for: .normal)
+        
+        // Reset shadow
+        micButton.layer.shadowColor = UIColor.systemRed.cgColor
+        micButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        micButton.layer.shadowOpacity = 0.4
+        micButton.layer.shadowRadius = 4
+    }
+    
+    // MARK: - Recording Timer
+    
+    private func startRecordingTimer() {
+        recordingDuration = 0
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.recordingDuration += 0.1
+            self?.checkAutoStop()
+        }
+    }
+    
+    private func stopRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+    }
+    
+    private func checkAutoStop() {
+        guard let vad = voiceActivityDetector else { return }
+        
+        // Check if we should auto-stop due to silence
+        if let silenceDuration = vad.shouldStopRecording() {
+            print("[KeyboardViewController] Auto-stopping after \(silenceDuration)s of silence")
+            stopRecording()
+            showTranscriptionComplete()
+        }
+        
+        // Max recording duration check (30 seconds)
+        if recordingDuration >= 30.0 {
+            print("[KeyboardViewController] Max recording duration reached")
+            stopRecording()
+            showTranscriptionComplete()
+        }
+    }
+    
+    // MARK: - VAD Callbacks
+    
+    private func handleSpeechDetected() {
+        // Flash indicator or update UI to show speech is detected
+        UIView.animate(withDuration: 0.1) { [weak self] in
+            self?.recordingIndicator?.alpha = 1.0
+        }
+    }
+    
+    private func handleSilenceDetected(duration: TimeInterval) {
+        // Show subtle feedback that we're waiting
+        print("[KeyboardViewController] Silence detected for \(duration)s")
+    }
+    
+    // MARK: - Alerts & Feedback
+    
+    private func showPermissionDeniedAlert() {
+        let alert = UIAlertController(
+            title: "Microphone Access Required",
+            message: "Please enable microphone access in Settings to use voice input.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Settings", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func showTranscriptionComplete() {
+        let label = UILabel()
+        label.text = "Processing..."
+        label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 8
+        label.clipsToBounds = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(label)
+        
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.bottomAnchor.constraint(equalTo: view.topAnchor, constant: -10),
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            label.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        
+        label.alpha = 0
+        UIView.animate(withDuration: 0.3) {
+            label.alpha = 1
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            UIView.animate(withDuration: 0.3) {
+                label.alpha = 0
+            } completion: { _ in
+                label.removeFromSuperview()
+            }
+        }
     }
     
     private func showMicFeedback() {
         let label = UILabel()
-        label.text = "Voice input coming in Phase 3"
+        label.text = "Tap to start recording"
         label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
         label.textColor = .white
         label.backgroundColor = UIColor.systemGray.withAlphaComponent(0.9)

@@ -2,9 +2,58 @@
 
 This document outlines the detailed implementation plan for WhisperBoard.
 
-## Current Phase: Phase 1 - Foundation & Setup 🏗️
+## Current Phase: Phase 3 - Whisper Integration 🧠 (Next)
 
-### Task 1.1: Xcode Project Structure
+## Phase 1 - Foundation & Setup ✅ COMPLETE
+
+### Task 2.1: Audio Engine Setup
+- [x] Configure AVAudioEngine
+- [x] Set up input node and format (16kHz, mono)
+- [x] Handle audio session configuration
+- [x] Manage audio session interruptions
+
+**Estimated Time:** 3-4 hours
+**Dependencies:** Phase 1 complete
+
+---
+
+### Task 2.2: Audio Buffering
+- [x] Implement circular buffer for audio samples
+- [x] 30-second sliding window for context
+- [x] Efficient memory management
+- [x] Buffer overflow handling
+
+**Estimated Time:** 3-4 hours
+**Dependencies:** Task 2.1
+
+---
+
+### Task 2.3: Mel Spectrogram Conversion
+- [ ] Implement FFT-based spectrogram
+- [ ] Apply Mel filter banks
+- [ ] Normalize to Whisper expected format
+- [ ] Optimize with Accelerate framework
+
+**Estimated Time:** 4-6 hours
+**Dependencies:** Task 2.2
+**Note:** This is technically complex - consider using existing Swift implementation
+
+---
+
+### Task 2.4: Voice Activity Detection
+- [x] Implement energy-based VAD
+- [x] Configure silence detection threshold
+- [x] Auto-stop after silence period (configurable, default 2s)
+- [x] Manual stop button as fallback
+
+**Estimated Time:** 2-3 hours
+**Dependencies:** Task 2.1
+
+---
+
+## Phase 3: Whisper Integration 🧠
+
+### Task 3.1: Model Conversion
 - [ ] Create new Xcode project: iOS App (Storyboard)
 - [ ] Add Keyboard Extension target
 - [ ] Configure bundle identifiers
