@@ -36,6 +36,10 @@ class KeyboardViewController: UIInputViewController {
     private var isDarkMode = false
     private var isNumberMode = false
     
+    // MARK: - Haptic Feedback
+    private let hapticGenerator = UIImpactFeedbackGenerator(style: .light)
+    private let notificationGenerator = UINotificationFeedbackGenerator()
+    
     // MARK: - Audio Pipeline Properties
     private var audioCapture: AudioCapture?
     private var audioProcessor: AudioProcessor?
@@ -100,6 +104,7 @@ class KeyboardViewController: UIInputViewController {
         setupKeyboard()
         observeAppearanceChanges()
         setupAudioPipeline()
+        setupHapticFeedback()
     }
     
     override func viewWillLayoutSubviews() {
@@ -110,6 +115,22 @@ class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         updateKeyboardAppearance()
+    }
+    
+    // MARK: - Memory Warning
+    
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        print("[KeyboardViewController] Memory warning received")
+        
+        // Notify audio pipeline to release resources
+        audioCapture?.stop()
+        
+        // Notify VAD
+        voiceActivityDetector?.reset()
+        
+        // Show memory warning feedback
+        notificationGenerator.notificationOccurred(.warning)
     }
     
     // MARK: - Setup
@@ -155,6 +176,12 @@ class KeyboardViewController: UIInputViewController {
         }
         
         print("[KeyboardViewController] Audio pipeline initialized")
+    }
+    
+    private func setupHapticFeedback() {
+        hapticGenerator.prepare()
+        notificationGenerator.prepare()
+        print("[KeyboardViewController] Haptic feedback initialized")
     }
     
     private func observeAppearanceChanges() {
@@ -336,6 +363,14 @@ class KeyboardViewController: UIInputViewController {
     @objc private func keyTapped(_ sender: KeyboardButton) {
         guard let key = sender.key else { return }
         
+        // Trigger haptic feedback for all key types except mic (handled separately)
+        switch key.keyType {
+        case .mic:
+            break // Haptic feedback handled in mic button actions
+        default:
+            hapticGenerator.impactOccurred()
+        }
+        
         switch key.keyType {
         case .letter:
             handleLetterKey(key)
@@ -354,6 +389,7 @@ class KeyboardViewController: UIInputViewController {
             handleMicButton(sender)
         case .globe:
             advanceToNextInputMode()
+            hapticGenerator.impactOccurred()
         case .numbers:
             // Toggle number mode - for now just animate
             animateKeyPress(sender)
@@ -417,6 +453,7 @@ class KeyboardViewController: UIInputViewController {
         guard let capture = audioCapture, let vad = voiceActivityDetector else {
             print("[KeyboardViewController] Audio pipeline not initialized")
             showMicFeedback()
+            notificationGenerator.notificationOccurred(.error)
             return
         }
         
@@ -432,13 +469,16 @@ class KeyboardViewController: UIInputViewController {
                         startRecordingIndicator()
                         startRecordingTimer()
                         updateMicButtonForRecording()
+                        notificationGenerator.notificationOccurred(.success)
                         print("[KeyboardViewController] Recording started")
                     } catch {
                         print("[KeyboardViewController] Failed to start recording: \(error)")
                         showMicFeedback()
+                        notificationGenerator.notificationOccurred(.error)
                     }
                 } else {
                     showPermissionDeniedAlert()
+                    notificationGenerator.notificationOccurred(.error)
                 }
             }
         }
@@ -452,6 +492,7 @@ class KeyboardViewController: UIInputViewController {
         stopRecordingIndicator()
         stopRecordingTimer()
         updateMicButtonForIdle()
+        notificationGenerator.notificationOccurred(.selection)
         
         // Process recorded audio
         if let audioData = capture.getAudioData() {

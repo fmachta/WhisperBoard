@@ -390,3 +390,96 @@ final class CircularBufferTests: XCTestCase {
         return buffer
     }
 }
+
+// MARK: - Keyboard VAD Preset Tests
+
+final class KeyboardVADPresetTests: XCTestCase {
+    
+    // MARK: - Keyboard Optimal Tests
+    
+    func testKeyboardOptimalPresetConfiguration() {
+        let detector = VoiceActivityDetector.keyboardOptimal
+        let config = detector.getConfig()
+        
+        // Verify keyboard optimal configuration
+        XCTAssertEqual(config.silenceThreshold, 0.01)
+        XCTAssertEqual(config.speechThreshold, 0.015)
+        XCTAssertEqual(config.silenceDuration, 2.0)
+        XCTAssertEqual(config.sampleRate, 16000)
+        print("[KeyboardVADPresetTests] Keyboard optimal preset test passed")
+    }
+    
+    func testSensitivePresetConfiguration() {
+        let detector = VoiceActivityDetector.sensitive
+        let config = detector.getConfig()
+        
+        // Verify sensitive configuration - lower thresholds for quiet environments
+        XCTAssertLessThan(config.silenceThreshold, 0.01)
+        XCTAssertLessThan(config.speechThreshold, 0.015)
+        XCTAssertEqual(config.silenceDuration, 1.5)
+        print("[KeyboardVADPresetTests] Sensitive preset test passed")
+    }
+    
+    func testConservativePresetConfiguration() {
+        let detector = VoiceActivityDetector.conservative
+        let config = detector.getConfig()
+        
+        // Verify conservative configuration - higher thresholds for noisy environments
+        XCTAssertGreaterThan(config.silenceThreshold, 0.01)
+        XCTAssertGreaterThan(config.speechThreshold, 0.03)
+        XCTAssertEqual(config.silenceDuration, 3.0)
+        print("[KeyboardVADPresetTests] Conservative preset test passed")
+    }
+    
+    // MARK: - VAD State Transition Tests
+    
+    func testVADStateTransitions() {
+        let detector = VoiceActivityDetector()
+        
+        // Initial state should be silence
+        XCTAssertFalse(detector.isVoiceActive())
+        
+        // Process silence samples
+        let silenceSamples = [Float](repeating: 0.001, count: 1000)
+        let silenceResult = detector.process(silenceSamples)
+        XCTAssertFalse(silenceResult.isVoice)
+        XCTAssertEqual(silenceResult.state, .silence)
+        
+        // Process speech samples
+        let speechSamples = generateSineWave(frequency: 440, sampleRate: 16000, duration: 0.1)
+        let speechResult = detector.process(speechSamples)
+        XCTAssertTrue(speechResult.isVoice)
+        XCTAssertEqual(speechResult.state, .speech)
+        
+        print("[KeyboardVADPresetTests] State transition test passed")
+    }
+    
+    // MARK: - Performance Tests
+    
+    func testVADProcessingPerformance() {
+        let detector = VoiceActivityDetector()
+        let samples = generateSineWave(frequency: 440, sampleRate: 16000, duration: 1.0)
+        
+        measure {
+            for _ in 0..<100 {
+                _ = detector.process(samples)
+            }
+        }
+    }
+    
+    // MARK: - Helpers
+    
+    private func generateSineWave(frequency: Double, sampleRate: Double, duration: TimeInterval) -> [Float] {
+        let sampleCount = Int(sampleRate * duration)
+        var samples = [Float]()
+        samples.reserveCapacity(sampleCount)
+        
+        for i in 0..<sampleCount {
+            let time = Double(i) / sampleRate
+            let sample = Float(sin(2.0 * .pi * frequency * time)) * 0.5
+            samples.append(sample)
+        }
+        
+        return samples
+    }
+}

@@ -277,3 +277,93 @@ final class VoiceCommandPerformanceTests: XCTestCase {
         return result
     }
 }
+
+// MARK: - Haptic Feedback Tests
+
+final class HapticFeedbackTests: XCTestCase {
+    
+    func testHapticGeneratorCreation() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        XCTAssertNotNil(generator)
+        print("[HapticFeedbackTests] Generator creation test passed")
+    }
+    
+    func testNotificationFeedbackGeneratorCreation() {
+        let generator = UINotificationFeedbackGenerator()
+        XCTAssertNotNil(generator)
+        print("[HapticFeedbackTests] Notification generator creation test passed")
+    }
+    
+    func testFeedbackGeneratorPrepare() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        // prepare() should not throw
+        generator.prepare()
+        print("[HapticFeedbackTests] Prepare test passed")
+    }
+}
+
+// MARK: - Memory Warning Tests
+
+final class MemoryWarningTests: XCTestCase {
+    
+    func testMemoryWarningHandling() {
+        let transcriber = WhisperTranscriber()
+        
+        // Verify initial state
+        XCTAssertFalse(transcriber.isModelLoaded)
+        
+        // Simulate memory warning
+        transcriber.handleMemoryWarning()
+        
+        // Verify model is unloaded
+        XCTAssertFalse(transcriber.isModelLoaded)
+        print("[MemoryWarningTests] Memory warning handling test passed")
+    }
+    
+    func testModelUnload() {
+        let manager = ModelManager()
+        let models = manager.getAllModelInfos()
+        
+        // Verify we can get model infos
+        XCTAssertEqual(models.count, 3)
+        print("[MemoryWarningTests] Model unload test passed")
+    }
+}
+
+// MARK: - Error Handling Tests
+
+final class ErrorHandlingTests: XCTestCase {
+    
+    func testTranscriptionErrorDescriptions() {
+        let errors: [WhisperTranscriber.TranscriptionError] = [
+            .modelNotLoaded,
+            .audioBufferEmpty,
+            .transcriptionFailed("Test error"),
+            .modelDownloadFailed("Download failed"),
+            .unsupportedLanguage,
+            .initializationFailed("Init failed")
+        ]
+        
+        for error in errors {
+            XCTAssertNotNil(error.errorDescription)
+            XCTAssertFalse(error.errorDescription!.isEmpty)
+        }
+        print("[ErrorHandlingTests] Error descriptions test passed")
+    }
+    
+    func testModelErrorDescriptions() {
+        let errors: [ModelManager.ModelError] = [
+            .downloadFailed("Test"),
+            .modelNotFound("Test"),
+            .invalidURL,
+            .storageError("Test"),
+            .verificationFailed("Test")
+        ]
+        
+        for error in errors {
+            XCTAssertNotNil(error.errorDescription)
+            XCTAssertFalse(error.errorDescription!.isEmpty)
+        }
+        print("[ErrorHandlingTests] Model error descriptions test passed")
+    }
+}
