@@ -1,0 +1,131 @@
+# Fastlane Fastfile
+# https://docs.fastlane.tools
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Run all tests"
+  lane :test do
+    scan(
+      project: "WhisperBoard.xcodeproj",
+      scheme: "WhisperBoard",
+      device: "iPhone 15",
+      clean: true
+    )
+  end
+
+  desc "Build the app"
+  lane :build do
+    gym(
+      project: "WhisperBoard.xcodeproj",
+      scheme: "WhisperBoard",
+      export_method: "development",
+      output_directory: "build",
+      build_path: "build"
+    )
+  end
+
+  desc "Deploy to TestFlight (Beta)"
+  lane :beta do
+    # Increment build number
+    increment_build_number(
+      xcodeproj: "WhisperBoard.xcodeproj"
+    )
+
+    # Build and sign the app
+    gym(
+      project: "WhisperBoard.xcodeproj",
+      scheme: "WhisperBoard",
+      export_method: "app-store",
+      output_directory: "build",
+      build_path: "build",
+      include_bitcode: false,
+      include_symbols: true
+    )
+
+    # Upload to TestFlight
+    pilot(
+      app_identifier: "com.fmachta.whisperboard",
+      ipa: "build/WhisperBoard.ipa",
+      skip_waiting_for_build_processing: false,
+      distribute_external: false,
+      notify_external_testers: false,
+      changelog: generate_changelog
+    )
+
+    # Clean up build artifacts
+    clean_build_artifacts
+
+    UI.success("🎉 Successfully deployed to TestFlight!")
+  end
+
+  desc "Deploy to App Store (Production)"
+  lane :release do
+    # Run tests first
+    test
+
+    # Increment version number
+    increment_version_number(
+      xcodeproj: "WhisperBoard.xcodeproj"
+    )
+
+    # Build and sign the app
+    gym(
+      project: "WhisperBoard.xcodeproj",
+      scheme: "WhisperBoard",
+      export_method: "app-store",
+      output_directory: "build"
+    )
+
+    # Upload to App Store
+    deliver(
+      ipa: "build/WhisperBoard.ipa",
+      force: true,
+      skip_metadata: false,
+      skip_screenshots: false,
+      submit_for_review: false
+    )
+
+    UI.success("🎉 Successfully deployed to App Store Connect!")
+  end
+
+  desc "Sync code signing certificates"
+  lane :sync_certs do
+    match(
+      type: "appstore",
+      app_identifier: "com.fmachta.whisperboard",
+      readonly: true
+    )
+  end
+
+  desc "Setup code signing for new machine"
+  lane :setup_certs do
+    match(
+      type: "development",
+      app_identifier: "com.fmachta.whisperboard"
+    )
+    match(
+      type: "appstore",
+      app_identifier: "com.fmachta.whisperboard"
+    )
+  end
+
+  desc "Take screenshots for App Store"
+  lane :screenshots do
+    capture_screenshots(
+      project: "WhisperBoard.xcodeproj",
+      scheme: "WhisperBoardUITests",
+      output_directory: "fastlane/screenshots"
+    )
+  end
+
+  private
+
+  def generate_changelog
+    # Get commit messages since last tag
+    changelog_from_git_commits(
+      between: [last_git_tag, "HEAD"],
+      pretty: "- %s"
+    )
+  end
+end

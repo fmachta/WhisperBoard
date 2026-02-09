@@ -1,0 +1,33 @@
+# Matchfile
+# https://docs.fastlane.tools/actions/match/
+
+# Where to store the certificates (private Git repo)
+# Uncomment and fill in after creating a private repo for certificates
+# git_url("https://github.com/YOUR_USERNAME/whisperboard-certificates")
+
+# Storage mode - can be :git, :google_cloud, :s3, etc.
+storage_mode("git")
+
+# The type of certificate to generate (development, appstore, adhoc, enterprise)
+type("appstore")
+
+# Your Apple Developer Portal Team ID
+# team_id("")
+
+# App identifiers
+app_identifier(["com.fmachta.whisperboard", "com.fmachta.whisperboard.keyboard"])
+
+# Username for Apple Developer Portal
+# username("")
+
+# Whether to force for new provisioning profiles
+# force(false)
+
+# Whether to include all certificates
+include_all_certificates(true)
+
+# Whether to force enterprise provisioning
+# force_for_new_devices(true)
+
+# Where to store provisioning profiles
+# provisioning_name("")
