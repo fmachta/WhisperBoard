@@ -1,15 +1,29 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var showSettings = false
+    
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("WhisperBoard")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
+                        HStack {
+                            Text("WhisperBoard")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                            
+                            Spacer()
+                            
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.blue)
+                            }
+                        }
                         
                         Text("Speech-to-text keyboard powered by Whisper")
                             .font(.subheadline)
@@ -23,12 +37,27 @@ struct ContentView: View {
                     // Features Card
                     FeaturesView()
                     
+                    // Model Status Card
+                    ModelStatusCard()
+                    
                     Spacer(minLength: 40)
                 }
                 .padding()
             }
             .navigationTitle("WhisperBoard")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView(transcriber: WhisperTranscriber())
+            }
         }
         .navigationViewStyle(.stack)
     }
@@ -135,6 +164,100 @@ struct FeatureCardView: View {
         .padding()
         .background(Color(UIColor.tertiarySystemBackground))
         .cornerRadius(12)
+    }
+}
+
+struct ModelStatusCard: View {
+    @StateObject private var modelManager = ModelManager()
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Model Status", systemImage: "cpu")
+                .font(.headline)
+            
+            HStack(spacing: 16) {
+                ForEach(WhisperModelType.allCases) { model in
+                    ModelStatusBadge(
+                        model: model,
+                        isDownloaded: modelManager.downloadedModels.contains(model),
+                        isSelected: modelManager.selectedModel == model
+                    )
+                }
+            }
+            
+            HStack {
+                Text("Storage Used:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(modelManager.getFormattedStorageUsed())
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            
+            Button {
+                if let url = URL(string: "UIApplication.openSettingsURLString") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Enable Keyboard")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.1))
+                    .foregroundColor(.blue)
+                    .cornerRadius(8)
+            }
+        }
+        .padding()
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(16)
+    }
+}
+
+struct ModelStatusBadge: View {
+    let model: WhisperModelType
+    let isDownloaded: Bool
+    let isSelected: Bool
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: statusIcon)
+                .font(.title3)
+                .foregroundColor(iconColor)
+            
+            Text(model.displayName)
+                .font(.caption2)
+                .fontWeight(.medium)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1)
+        )
+    }
+    
+    private var statusIcon: String {
+        if isSelected {
+            return "checkmark.circle.fill"
+        } else if isDownloaded {
+            return "checkmark.circle"
+        } else {
+            return "arrow.down.circle"
+        }
+    }
+    
+    private var iconColor: Color {
+        if isSelected {
+            return .blue
+        } else if isDownloaded {
+            return .green
+        } else {
+            return .gray
+        }
     }
 }
 
