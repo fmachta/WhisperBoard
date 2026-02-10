@@ -113,7 +113,7 @@ class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         setupKeyboard()
         observeAppearanceChanges()
-        setupAudioPipeline()
+        // Audio pipeline is lazy-loaded when mic is pressed
         setupHapticFeedback()
     }
     
@@ -457,8 +457,13 @@ class KeyboardViewController: UIInputViewController {
     }
     
     private func startRecording() {
+        // Lazy initialization of audio pipeline
+        if audioCapture == nil || voiceActivityDetector == nil {
+            setupAudioPipeline()
+        }
+        
         guard let capture = audioCapture, let vad = voiceActivityDetector else {
-            print("[KeyboardViewController] Audio pipeline not initialized")
+            print("[KeyboardViewController] Audio pipeline initialization failed")
             showMicFeedback()
             notificationGenerator.notificationOccurred(.error)
             return
