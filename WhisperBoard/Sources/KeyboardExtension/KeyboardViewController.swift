@@ -53,14 +53,17 @@ class KeyboardViewController: UIInputViewController {
     private var recordingTimer: Timer?
     private var audioPermissionChecked = false
     
-    // MARK: - WhisperKit Properties (moved from extension)
-    private(set) var whisperTranscriber: WhisperTranscriber?
+    // MARK: - WhisperKit Properties (DISABLED for memory testing)
+    // private(set) var whisperTranscriber: WhisperTranscriber?
     private var transcriptionOverlay: UIHostingController<TranscriptionView>?
     private var transcriptionOverlayContainer: UIView?
     private var cancellables = Set<AnyCancellable>()
     @Published private(set) var transcriptionState: KeyboardTranscriptionState = .idle
     @Published private(set) var modelLoadProgress: Double = 0
     private var isModelLoading = false
+    
+    // Lightweight flag for testing
+    private let useWhisperKit = false  // Set to true to test memory crash
     
     // MARK: - Keyboard Layout
     private let row1: [Key] = [
