@@ -10,11 +10,36 @@ class KeyboardViewController: UIInputViewController {
     private var statusLabel: UILabel!
     private var isRecording = false
     private var audioCapture: AudioCapture?
+    private var pollTimer: Timer?
+    private var recordingStartTime: Date?
+    private var maxRecordingTimer: Timer?
+    
+    // MARK: - Constants
+    private let maxRecordingDuration: TimeInterval = 60.0 // 60 seconds max
     
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupAudioSession()
+    }
+    
+    deinit {
+        pollTimer?.invalidate()
+        maxRecordingTimer?.invalidate()
+        if isRecording {
+            audioCapture?.stopRecording()
+        }
+    }
+    
+    /// Handle memory warnings - critical for keyboard extensions
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        print("[Keyboard] Memory warning received!")
+        if isRecording {
+            stopRecording()
+            showError("Recording stopped: memory limit")
+        }
     }
     
     // MARK: - Setup
@@ -38,6 +63,7 @@ class KeyboardViewController: UIInputViewController {
         statusLabel.text = "Tap to dictate"
         statusLabel.textColor = .white
         statusLabel.textAlignment = .center
+        statusLabel.numberOfLines = 2
         view.addSubview(statusLabel)
         
         // Globe button
@@ -64,6 +90,8 @@ class KeyboardViewController: UIInputViewController {
             
             statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             statusLabel.topAnchor.constraint(equalTo: dictateButton.bottomAnchor, constant: 16),
+            statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             
             globeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             globeButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
@@ -77,6 +105,16 @@ class KeyboardViewController: UIInputViewController {
         ])
     }
     
+    private func setupAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setActive(false) // Don't activate yet, just configure
+        } catch {
+            print("[Keyboard] Audio session setup error: \(error)")
+        }
+    }
+    
     // MARK: - Actions
     @objc private func dictateTapped() {
         isRecording ? stopRecording() : startRecording()
@@ -88,7 +126,10 @@ class KeyboardViewController: UIInputViewController {
     
     // MARK: - Recording
     private func startRecording() {
-        guard let containerURL = SharedDefaults.containerURL else { return }
+        guard let containerURL = SharedDefaults.containerURL else {
+            showError("App Group error")
+            return
+        }
         
         let timestamp = Int(Date().timeIntervalSince1970)
         let audioURL = containerURL.appendingPathComponent("audio_\(timestamp).wav")
@@ -96,26 +137,52 @@ class KeyboardViewController: UIInputViewController {
         audioCapture = AudioCapture()
         
         Task {
-            guard await audioCapture?.checkPermission() ?? false else { return }
+            guard await audioCapture?.checkPermission() ?? false else {
+                showError("Microphone permission required")
+                return
+            }
             
             do {
                 try audioCapture?.startRecording(to: audioURL)
-                isRecording = true
-                updateUI(forRecording: true)
+                
+                await MainActor.run {
+                    isRecording = true
+                    recordingStartTime = Date()
+                    updateUI(forRecording: true)
+                    startMaxRecordingTimer()
+                }
                 
                 audioCapture?.onRecordingFinished = { [weak self] url in
                     self?.processRecording(url)
                 }
+                
+                audioCapture?.onError = { [weak self] error in
+                    self?.showError("Recording error")
+                    print("[Keyboard] Audio capture error: \(error)")
+                }
+                
             } catch {
+                showError("Failed to start recording")
                 print("[Keyboard] Recording error: \(error)")
             }
         }
     }
     
     private func stopRecording() {
+        maxRecordingTimer?.invalidate()
+        maxRecordingTimer = nil
+        
         audioCapture?.stopRecording()
         isRecording = false
         updateUI(forRecording: false)
+    }
+    
+    private func startMaxRecordingTimer() {
+        maxRecordingTimer?.invalidate()
+        maxRecordingTimer = Timer.scheduledTimer(withTimeInterval: maxRecordingDuration, repeats: false) { [weak self] _ in
+            self?.showError("Max duration reached")
+            self?.stopRecording()
+        }
     }
     
     private func processRecording(_ url: URL) {
@@ -129,24 +196,66 @@ class KeyboardViewController: UIInputViewController {
         SharedDefaults.writeRequest(request)
         DarwinNotificationCenter.shared.post(SharedDefaults.newAudioNotificationName)
         
-        // Poll for result
-        startPolling()
+        DispatchQueue.main.async { [weak self] in
+            self?.statusLabel.text = "Transcribing..."
+            self?.startPolling()
+        }
+        
+        // Clean up audio file after transcription is done
+        DispatchQueue.global(qos: .background).async {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
     
     private func startPolling() {
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            guard let result = SharedDefaults.readResult() else { return }
+        pollTimer?.invalidate()
+        var attempts = 0
+        let maxAttempts = 60 // 30 seconds timeout (0.5s * 60)
+        
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            attempts += 1
+            
+            guard let result = SharedDefaults.readResult() else {
+                if attempts >= maxAttempts {
+                    timer.invalidate()
+                    self?.showError("Transcription timeout")
+                    SharedDefaults.clearRequest()
+                }
+                return
+            }
+            
             timer.invalidate()
             
-            if case .completed = result.status {
+            switch result.status {
+            case .completed:
                 self?.textDocumentProxy.insertText(result.text)
-                SharedDefaults.clearResult()
+                self?.statusLabel.text = "Done"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    self?.statusLabel.text = "Tap to dictate"
+                }
+            case .failed:
+                self?.showError("Transcription failed: \(result.error ?? "Unknown error")")
+            case .pending, .processing:
+                self?.statusLabel.text = "Transcribing..."
+                return // Keep polling
             }
+            
+            SharedDefaults.clearResult()
         }
     }
     
     private func updateUI(forRecording: Bool) {
         statusLabel.text = forRecording ? "Recording..." : "Tap to dictate"
         dictateButton.backgroundColor = forRecording ? .systemOrange : .systemRed
+    }
+    
+    private func showError(_ message: String) {
+        statusLabel.text = message
+        statusLabel.textColor = .systemRed
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.statusLabel.text = "Tap to dictate"
+            self?.statusLabel.textColor = .white
+        }
     }
 }
