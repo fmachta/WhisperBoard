@@ -252,8 +252,7 @@ class KeyboardViewController: UIInputViewController {
         
         let totalSpacing = CGFloat(keys.count - 1)
         let totalKeyWidth = keys.reduce(0) { $0 + $1.width }
-        let remainingSpace = CGFloat(320) - totalKeyWidth - totalSpacing * 6
-        let extraSpacing = remainingSpace / CGFloat(keys.count + 1)
+        _ = CGFloat(320) - totalKeyWidth - totalSpacing * 6
         
         for key in keys {
             let button = createKeyButton(key: key)

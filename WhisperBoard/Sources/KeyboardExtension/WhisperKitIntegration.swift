@@ -75,11 +75,11 @@ struct TranscriptionView: View {
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
         .frame(maxHeight: maxHeight)
-        .onChange(of: transcriber.currentTranscription) { newValue in
+        .onChange(of: transcriber.currentTranscription) { _, newValue in
             displayText = newValue
             showingResults = !newValue.isEmpty
         }
-        .onChange(of: transcriber.isProcessing) { processing in
+        .onChange(of: transcriber.isProcessing) { _, processing in
             isProcessing = processing
         }
     }

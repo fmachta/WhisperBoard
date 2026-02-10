@@ -258,18 +258,19 @@ final class ModelManager: ObservableObject {
     
     /// Load all previously downloaded models from storage
     private func loadDownloadedModels() {
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
             var downloaded: Set<WhisperModelType> = []
             
             for modelType in WhisperModelType.allCases {
-                let modelPath = getModelPath(for: modelType)
+                let modelPath = self.getModelPath(for: modelType)
                 if FileManager.default.fileExists(atPath: modelPath.path) {
                     downloaded.insert(modelType)
                 }
             }
             
             await MainActor.run {
-                downloadedModels = downloaded
+                self.downloadedModels = downloaded
             }
         }
     }

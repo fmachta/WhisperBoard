@@ -73,7 +73,9 @@ final class AudioProcessor {
     private func dataToFloat(_ data: Data) -> [Float] {
         let count = data.count / MemoryLayout<Float>.size
         var samples = [Float](repeating: 0, count: count)
-        data.copyBytes(to: UnsafeMutableBufferPointer(start: &samples, count: count))
+        _ = samples.withUnsafeMutableBytes { buffer in
+            data.copyBytes(to: buffer)
+        }
         return samples
     }
     

@@ -151,7 +151,7 @@ final class WhisperTranscriber: ObservableObject {
     /// - Parameter audioSamples: Raw audio samples as Float array
     /// - Returns: TranscriptionResult with transcribed text
     func transcribe(_ audioSamples: [Float]) async throws -> TranscriptionResult {
-        guard isModelLoaded, let whisper = whisper else {
+        guard isModelLoaded, let _ = whisper else {
             throw TranscriptionError.modelNotLoaded
         }
         
@@ -163,49 +163,41 @@ final class WhisperTranscriber: ObservableObject {
             isTranscribing = true
         }
         
-        do {
-            // Process audio (normalize, etc.)
-            let processedSamples = audioProcessor.process(audioSamples)
-            
-            // Create audio buffer
-            let audioBuffer = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
-            
-            // Run transcription using WhisperKit
-            // TODO: Implement actual WhisperKit transcription
-            let transcriptionResult = TranscriptionResult(
-                text: "Transcription placeholder",
-                timestamp: Date(),
-                confidence: nil,
-                isFinal: true,
-                audioDuration: Double(processedSamples.count) / 16000.0
-            )
-            
-            // Apply voice commands
-            let processedText = applyVoiceCommands(transcriptionResult.text)
-            
-            let finalResult = TranscriptionResult(
-                text: processedText,
-                timestamp: Date(),
-                confidence: transcriptionResult.confidence,
-                isFinal: true,
-                audioDuration: transcriptionResult.audioDuration
-            )
-            
-            await MainActor.run {
-                lastResult = finalResult
-                isTranscribing = false
-            }
-            
-            onTranscriptionResult?(finalResult)
-            
-            return finalResult
-            
-        } catch {
-            await MainActor.run {
-                isTranscribing = false
-            }
-            throw TranscriptionError.transcriptionFailed(error.localizedDescription)
+        // Process audio (normalize, etc.)
+        let processedSamples = audioProcessor.process(audioSamples)
+        
+        // Create audio buffer (for future WhisperKit implementation)
+        _ = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
+        
+        // Run transcription using WhisperKit
+        // TODO: Implement actual WhisperKit transcription
+        let transcriptionResult = TranscriptionResult(
+            text: "Transcription placeholder",
+            timestamp: Date(),
+            confidence: nil,
+            isFinal: true,
+            audioDuration: Double(processedSamples.count) / 16000.0
+        )
+        
+        // Apply voice commands
+        let processedText = applyVoiceCommands(transcriptionResult.text)
+        
+        let finalResult = TranscriptionResult(
+            text: processedText,
+            timestamp: Date(),
+            confidence: transcriptionResult.confidence,
+            isFinal: true,
+            audioDuration: transcriptionResult.audioDuration
+        )
+        
+        await MainActor.run {
+            lastResult = finalResult
+            isTranscribing = false
         }
+        
+        onTranscriptionResult?(finalResult)
+        
+        return finalResult
     }
     
     /// Transcribe audio data
@@ -227,7 +219,7 @@ final class WhisperTranscriber: ObservableObject {
         _ audioSamples: [Float],
         progress: @escaping (String) -> Void
     ) async throws -> TranscriptionResult {
-        guard isModelLoaded, let whisper = whisper else {
+        guard isModelLoaded, let _ = whisper else {
             throw TranscriptionError.modelNotLoaded
         }
         
@@ -235,38 +227,30 @@ final class WhisperTranscriber: ObservableObject {
             isTranscribing = true
         }
         
-        do {
-            let processedSamples = audioProcessor.process(audioSamples)
-            let audioBuffer = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
-            
-            // Use WhisperKit's transcription
-            // TODO: Implement actual WhisperKit transcription
-            let finalText = applyVoiceCommands("Streaming transcription placeholder")
-            
-            let transcriptionResult = TranscriptionResult(
-                text: finalText,
-                timestamp: Date(),
-                confidence: nil,
-                isFinal: true,
-                audioDuration: Double(processedSamples.count) / 16000.0
-            )
-            
-            await MainActor.run {
-                lastResult = transcriptionResult
-                isTranscribing = false
-            }
-            
-            progress(finalText)
-            onTranscriptionResult?(transcriptionResult)
-            
-            return transcriptionResult
-            
-        } catch {
-            await MainActor.run {
-                isTranscribing = false
-            }
-            throw TranscriptionError.transcriptionFailed(error.localizedDescription)
+        let processedSamples = audioProcessor.process(audioSamples)
+        _ = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
+        
+        // Use WhisperKit's transcription
+        // TODO: Implement actual WhisperKit transcription
+        let finalText = applyVoiceCommands("Streaming transcription placeholder")
+        
+        let transcriptionResult = TranscriptionResult(
+            text: finalText,
+            timestamp: Date(),
+            confidence: nil,
+            isFinal: true,
+            audioDuration: Double(processedSamples.count) / 16000.0
+        )
+        
+        await MainActor.run {
+            lastResult = transcriptionResult
+            isTranscribing = false
         }
+        
+        progress(finalText)
+        onTranscriptionResult?(transcriptionResult)
+        
+        return transcriptionResult
     }
     
     /// Unload model to free memory
@@ -329,8 +313,7 @@ final class WhisperTranscriber: ObservableObject {
     
     private func initializeWhisperKit(modelPath: URL, modelType: WhisperModelType) async throws {
         // Initialize WhisperKit with the correct config
-        var config = WhisperKitConfig(model: modelType.rawValue)
-        config.downloadBase = URL(string: "https://huggingface.co/argmax/whisperkit-coreml")
+        let config = WhisperKitConfig(model: modelType.rawValue)
         
         whisper = try await WhisperKit(config)
         

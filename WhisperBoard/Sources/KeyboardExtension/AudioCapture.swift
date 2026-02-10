@@ -50,8 +50,6 @@ final class AudioCapture {
             maxDuration: maxDuration,
             channels: Int(channels)
         )
-        
-        setupAudioFormat()
     }
     
     // MARK: - Public Methods
@@ -122,17 +120,13 @@ final class AudioCapture {
         
         inputNode.removeTap(onBus: 0)
         
-        do {
-            audioEngine.stop()
-            stateQueue.async { [weak self] in
-                guard let self = self else { return }
-                self.state = .idle
-                self.onStateChanged?(.idle)
-            }
-            print("[AudioCapture] Stopped capturing")
-        } catch {
-            print("[AudioCapture] Error stopping engine: \(error)")
+        audioEngine.stop()
+        stateQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.state = .idle
+            self.onStateChanged?(.idle)
         }
+        print("[AudioCapture] Stopped capturing")
     }
     
     /// Pause audio capture (keeps engine running)
