@@ -16,7 +16,7 @@ import WhisperKit
 ///
 /// The service also supports manual transcription from within the main app.
 
-final class TranscriptionService: ObservableObject {
+actor TranscriptionService: ObservableObject {
 
     // MARK: - Published State
 
@@ -31,7 +31,6 @@ final class TranscriptionService: ObservableObject {
 
     private var whisperKit: WhisperKit?
     private let queue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
-    private var cancellables = Set<AnyCancellable>()
     private var audioCapture: AudioCapture?
     private var currentRecordingURL: URL?
 
@@ -235,6 +234,15 @@ final class TranscriptionService: ObservableObject {
     private func handleNewAudioRequest() {
         guard let request = SharedDefaults.readRequest() else {
             print("[TranscriptionService] No valid request found")
+            writeFailure(
+                request: SharedDefaults.TranscriptionRequest(
+                    audioFileName: "",
+                    language: "en",
+                    sampleRate: 16000.0,
+                    timestamp: Date().timeIntervalSince1970
+                ),
+                error: "Invalid or missing transcription request"
+            )
             return
         }
 
@@ -356,23 +364,31 @@ final class TranscriptionService: ObservableObject {
     }
 
     // MARK: - Voice Commands
-
-    private static let voiceCommands: [(pattern: String, replacement: String)] = [
-        (#"\bperiod\b\.?\s*$"#,            "."),
-        (#"\bcomma\b,?\s*$"#,              ","),
-        (#"\bquestion mark\b\??\s*$"#,     "?"),
-        (#"\bexclamation mark\b!\s*$"#,     "!"),
-        (#"\bnew line\b\s*$"#,             "\n"),
-        (#"\bnew paragraph\b\s*$"#,         "\n\n"),
-    ]
+    
+    /// Pre-compiled regex patterns for voice command processing
+    private static let voiceCommandPatterns: [(regex: NSRegularExpression, replacement: String)] = {
+        let patterns: [(String, String)] = [
+            (#"\bperiod\b\.?\s*$"#,            "."),
+            (#"\bcomma\b,?\s*$"#,              ","),
+            (#"\bquestion mark\b\??\s*$"#,     "?"),
+            (#"\bexclamation mark\b!\s*$"#,     "!"),
+            (#"\bnew line\b\s*$"#,             "\n"),
+            (#"\bnew paragraph\b\s*$"#,         "\n\n"),
+        ]
+        
+        return patterns.compactMap { pattern, replacement in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+                return nil
+            }
+            return (regex, replacement)
+        }
+    }()
 
     private func applyVoiceCommands(_ text: String) -> String {
         var result = text
-        for (pattern, replacement) in Self.voiceCommands {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                let range = NSRange(result.startIndex..., in: result)
-                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: replacement)
-            }
+        for (regex, replacement) in Self.voiceCommandPatterns {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: replacement)
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
