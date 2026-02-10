@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import AVFoundation
 import WhisperKit
 
 /// Background service running in the main app that monitors the App Group
@@ -31,6 +32,8 @@ final class TranscriptionService: ObservableObject {
     private var whisperKit: WhisperKit?
     private let queue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
     private var cancellables = Set<AnyCancellable>()
+    private var audioCapture: AudioCapture?
+    private var currentRecordingURL: URL?
 
     // MARK: - Singleton
 
@@ -44,9 +47,14 @@ final class TranscriptionService: ObservableObject {
         isRunning = true
         statusMessage = "Listening for keyboard requests…"
 
-        // Observe Darwin notification from keyboard
+        // Observe Darwin notification from keyboard (legacy - audio already recorded)
         DarwinNotificationCenter.shared.observe(SharedDefaults.newAudioNotificationName) { [weak self] in
             self?.handleNewAudioRequest()
+        }
+        
+        // Observe request to start recording (new - keyboard asks main app to record)
+        DarwinNotificationCenter.shared.observe("com.fmachta.whisperboard.startRecording") { [weak self] in
+            self?.handleStartRecordingRequest()
         }
 
         // Mark service as running in shared defaults
@@ -114,6 +122,112 @@ final class TranscriptionService: ObservableObject {
         whisperKit = nil
         isModelLoaded = false
         statusMessage = "Model unloaded"
+    }
+
+    // MARK: - Recording (triggered by keyboard)
+    
+    private func handleStartRecordingRequest() {
+        print("[TranscriptionService] Received start recording request from keyboard")
+        
+        Task {
+            await MainActor.run {
+                statusMessage = "Recording from keyboard..."
+            }
+            
+            // Check microphone permission
+            guard await checkMicrophonePermission() else {
+                writeRecordingFailure(error: "Microphone permission denied")
+                return
+            }
+            
+            // Generate unique filename
+            let timestamp = Int(Date().timeIntervalSince1970)
+            guard let audioURL = SharedDefaults.containerURL?.appendingPathComponent("kb_\(timestamp).wav") else {
+                writeRecordingFailure(error: "Cannot create audio file")
+                return
+            }
+            
+            // Start recording
+            audioCapture = AudioCapture()
+            currentRecordingURL = audioURL
+            
+            do {
+                try audioCapture?.startRecording(to: audioURL)
+                
+                // Set up callback for when recording finishes
+                audioCapture?.onRecordingFinished = { [weak self] url in
+                    Task {
+                        await self?.processRecordedAudio(url)
+                    }
+                }
+                
+                // Auto-stop after 60 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                    self?.stopRecording()
+                }
+                
+            } catch {
+                writeRecordingFailure(error: "Failed to start recording: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func stopRecording() {
+        audioCapture?.stopRecording()
+        audioCapture = nil
+    }
+    
+    private func processRecordedAudio(_ url: URL) async {
+        guard let request = createTranscriptionRequest(for: url) else {
+            writeRecordingFailure(error: "Failed to create request")
+            return
+        }
+        
+        // Save request and transcribe
+        SharedDefaults.writeRequest(request)
+        await transcribeRequest(request)
+    }
+    
+    private func createTranscriptionRequest(for url: URL) -> SharedDefaults.TranscriptionRequest? {
+        return SharedDefaults.TranscriptionRequest(
+            audioFileName: url.lastPathComponent,
+            language: SharedDefaults.sharedDefaults?.string(forKey: SharedDefaults.selectedLanguageKey) ?? "en",
+            sampleRate: 16000.0,
+            timestamp: Date().timeIntervalSince1970
+        )
+    }
+    
+    private func writeRecordingFailure(error: String) {
+        let result = SharedDefaults.TranscriptionResult(
+            text: "",
+            status: .failed,
+            requestTimestamp: Date().timeIntervalSince1970,
+            completedTimestamp: Date().timeIntervalSince1970,
+            error: error
+        )
+        SharedDefaults.writeResult(result)
+        DarwinNotificationCenter.shared.post(SharedDefaults.transcriptionDoneNotificationName)
+        
+        Task { @MainActor in
+            statusMessage = "Recording error: \(error)"
+        }
+    }
+    
+    private func checkMicrophonePermission() async -> Bool {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await withCheckedContinuation { continuation in
+                AVAudioApplication.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        @unknown default:
+            return false
+        }
     }
 
     // MARK: - Transcription (from keyboard request)
