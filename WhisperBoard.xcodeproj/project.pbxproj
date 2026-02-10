@@ -431,6 +431,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = "add-add-";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WhisperBoard.app/WhisperBoard";
@@ -542,6 +543,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = "add-add-";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WhisperBoard.app/WhisperBoard";

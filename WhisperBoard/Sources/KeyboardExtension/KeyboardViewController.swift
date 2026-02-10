@@ -140,8 +140,9 @@ final class KeyboardViewController: UIInputViewController {
 
     private func buildUI() {
         guard let root = view else { return }
-        root.backgroundColor = .clear
+        root.backgroundColor = isDarkMode ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0) : UIColor(red: 0.82, green: 0.83, blue: 0.85, alpha: 1.0)
 
+        // Main container
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(container)
@@ -150,8 +151,75 @@ final class KeyboardViewController: UIInputViewController {
             container.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             container.topAnchor.constraint(equalTo: root.topAnchor),
             container.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            container.heightAnchor.constraint(equalToConstant: K.keyboardHeight),
+            container.heightAnchor.constraint(equalToConstant: 200)
         ])
+
+        // Dictate button
+        let dictateButton = UIButton(type: .system)
+        dictateButton.translatesAutoresizingMaskIntoConstraints = false
+        dictateButton.backgroundColor = .systemRed
+        dictateButton.tintColor = .white
+        dictateButton.layer.cornerRadius = 40
+        dictateButton.layer.shadowColor = UIColor.black.cgColor
+        dictateButton.layer.shadowOffset = CGSize(width: 0, height: 4)
+        dictateButton.layer.shadowOpacity = 0.3
+        dictateButton.layer.shadowRadius = 8
+        dictateButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        dictateButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .medium)
+        dictateButton.addTarget(self, action: #selector(dictateTapped), for: .touchUpInside)
+        container.addSubview(dictateButton)
+
+        NSLayoutConstraint.activate([
+            dictateButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            dictateButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            dictateButton.widthAnchor.constraint(equalToConstant: 80),
+            dictateButton.heightAnchor.constraint(equalToConstant: 80)
+        ])
+
+        // Status label
+        let statusLabel = UILabel()
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.text = "Tap to dictate"
+        statusLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        statusLabel.textColor = isDarkMode ? .white : .black
+        statusLabel.textAlignment = .center
+        container.addSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            statusLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            statusLabel.topAnchor.constraint(equalTo: dictateButton.bottomAnchor, constant: 16)
+        ])
+
+        // Globe button (to switch keyboards)
+        let globeButton = UIButton(type: .system)
+        globeButton.translatesAutoresizingMaskIntoConstraints = false
+        globeButton.setImage(UIImage(systemName: "globe"), for: .normal)
+        globeButton.tintColor = isDarkMode ? .white : .black
+        globeButton.addTarget(self, action: #selector(globeTapped), for: .touchUpInside)
+        container.addSubview(globeButton)
+
+        NSLayoutConstraint.activate([
+            globeButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            globeButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20),
+            globeButton.widthAnchor.constraint(equalToConstant: 44),
+            globeButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+
+        // Delete button
+        let deleteButton = UIButton(type: .system)
+        deleteButton.translatesAutoresizingMaskIntoConstraints = false
+        deleteButton.setImage(UIImage(systemName: "delete.left"), for: .normal)
+        deleteButton.tintColor = isDarkMode ? .white : .black
+        deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+        container.addSubview(deleteButton)
+
+        NSLayoutConstraint.activate([
+            deleteButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            deleteButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20),
+            deleteButton.widthAnchor.constraint(equalToConstant: 44),
+            deleteButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
         // --- Voice bar ---
         voiceBar = UIView()
         voiceBar.translatesAutoresizingMaskIntoConstraints = false
@@ -833,5 +901,25 @@ final class KeyboardViewController: UIInputViewController {
                 button.transform = .identity
             }
         }
+    }
+
+    // MARK: - Dictate Button Actions
+
+    @objc private func dictateTapped() {
+        print("[Keyboard] Dictate button tapped")
+        // TODO: Start/stop recording
+        // For now, just show feedback
+        alertHaptic.notificationOccurred(.success)
+    }
+
+    @objc private func globeTapped() {
+        print("[Keyboard] Globe button tapped - advancing to next input mode")
+        advanceToNextInputMode()
+    }
+
+    @objc private func deleteTapped() {
+        print("[Keyboard] Delete button tapped")
+        textDocumentProxy.deleteBackward()
+        tapHaptic.impactOccurred()
     }
 }
