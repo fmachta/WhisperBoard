@@ -1,11 +1,9 @@
 import AVFoundation
 import Foundation
 
-/// Audio capture manager using AVAudioEngine for real-time microphone input
-/// Optimized for keyboard extension with limited memory
+/// Memory-efficient audio capture for keyboard extensions
+/// Writes directly to file in App Group container, never buffers in memory
 final class AudioCapture {
-    
-    // MARK: - Types
     
     enum AudioCaptureError: Error {
         case engineSetupFailed
@@ -13,12 +11,12 @@ final class AudioCapture {
         case audioSessionError(Error)
         case captureInProgress
         case notCapturing
+        case fileWriteFailed
     }
     
     enum CaptureState: Equatable {
         case idle
-        case capturing
-        case paused
+        case capturing(URL) // URL of the output file
         case error(String)
     }
     
@@ -26,153 +24,139 @@ final class AudioCapture {
     
     private let audioEngine = AVAudioEngine()
     private let inputNode: AVAudioInputNode
-    private var audioBuffer: CircularBuffer
     private var state: CaptureState = .idle
+    private var outputFile: AVAudioFile?
     
     private let sampleRate: Double = 16000
     private let channels: AVAudioChannelCount = 1
-    private let bufferSize: AVAudioFrameCount = 4096
     
     // Callbacks
-    var onAudioBufferAvailable: ((Data) -> Void)?
     var onStateChanged: ((CaptureState) -> Void)?
     var onError: ((Error) -> Void)?
+    var onRecordingFinished: ((URL) -> Void)?
     
     // Thread safety
     private let stateQueue = DispatchQueue(label: "com.whisperboard.audiocapture.state")
     
     // MARK: - Initialization
     
-    init(maxDuration: TimeInterval = 30.0) {
+    init() {
         self.inputNode = audioEngine.inputNode
-        self.audioBuffer = CircularBuffer(
-            sampleRate: sampleRate,
-            maxDuration: maxDuration,
-            channels: Int(channels)
-        )
     }
     
     // MARK: - Public Methods
     
-    /// Check microphone permission status.
+    /// Check microphone permission status
     func checkPermission() async -> Bool {
-        if #available(iOS 17.0, *) {
-            switch AVAudioApplication.shared.recordPermission {
-            case .granted:  return true
-            case .denied:   return false
-            case .undetermined: return await requestPermission()
-            @unknown default:   return false
-            }
-        } else {
-            switch AVAudioSession.sharedInstance().recordPermission {
-            case .granted:      return true
-            case .denied:       return false
-            case .undetermined: return await requestPermission()
-            @unknown default:   return false
-            }
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await requestPermission()
+        @unknown default:
+            return false
         }
     }
-
-    /// Request microphone permission.
+    
+    /// Request microphone permission
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            if #available(iOS 17.0, *) {
-                AVAudioApplication.requestRecordPermission { granted in
-                    continuation.resume(returning: granted)
-                }
-            } else {
-                AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                    continuation.resume(returning: granted)
-                }
+            AVAudioApplication.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
             }
         }
     }
     
-    /// Start audio capture.
-    func start() throws {
+    /// Start recording audio directly to file in App Group container
+    func startRecording(to outputURL: URL) throws {
         let currentState = stateQueue.sync { state }
-        if currentState == .capturing {
+        guard case .idle = currentState else {
             throw AudioCaptureError.captureInProgress
         }
-
-        // Configure audio session for keyboard extension recording
+        
+        // Configure audio session for recording
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-        try session.setPreferredSampleRate(sampleRate)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
-
-        guard let format = setupAudioFormat() else {
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            throw AudioCaptureError.audioSessionError(error)
+        }
+        
+        // Setup audio format (16kHz, mono, Float32 for WhisperKit)
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: channels,
+            interleaved: false
+        ) else {
             throw AudioCaptureError.engineSetupFailed
         }
-
-        audioBuffer.clear()
-
-        // Configure input node
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
-            self?.processAudioBuffer(buffer, time: time)
+        
+        // Create output file
+        do {
+            outputFile = try AVAudioFile(forWriting: outputURL, settings: format.settings)
+        } catch {
+            throw AudioCaptureError.fileWriteFailed
         }
-
-        // Start audio engine
+        
+        // Install tap on input node
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            guard let self = self, let outputFile = self.outputFile else { return }
+            
+            do {
+                try outputFile.write(from: buffer)
+            } catch {
+                self.stateQueue.async {
+                    self.state = .error("Failed to write audio: \(error.localizedDescription)")
+                    self.onError?(error)
+                }
+            }
+        }
+        
+        // Start engine
         do {
             try audioEngine.start()
-            stateQueue.async { [weak self] in
-                guard let self = self else { return }
-                self.state = .capturing
-                self.onStateChanged?(.capturing)
+            stateQueue.async {
+                self.state = .capturing(outputURL)
+                self.onStateChanged?(.capturing(outputURL))
             }
-            print("[AudioCapture] Started capturing at \(Int(sampleRate))Hz")
+            print("[AudioCapture] Started recording to: \(outputURL.path)")
         } catch {
-            stateQueue.async { [weak self] in
-                guard let self = self else { return }
-                self.state = .error(error.localizedDescription)
-                self.onError?(AudioCaptureError.engineSetupFailed)
-            }
             throw AudioCaptureError.engineSetupFailed
         }
     }
     
-    /// Stop audio capture
-    func stop() {
-        stateQueue.sync {
-            guard state == .capturing else { return }
-        }
-        
-        inputNode.removeTap(onBus: 0)
-        
-        audioEngine.stop()
+    /// Stop recording
+    func stopRecording() {
         stateQueue.async { [weak self] in
             guard let self = self else { return }
+            
+            guard case .capturing(let url) = self.state else {
+                return
+            }
+            
+            // Stop engine and remove tap
+            self.audioEngine.stop()
+            self.inputNode.removeTap(onBus: 0)
+            
+            // Close file
+            self.outputFile = nil
+            
+            // Deactivate audio session
+            do {
+                try AVAudioSession.sharedInstance().setActive(false)
+            } catch {
+                print("[AudioCapture] Warning: Failed to deactivate audio session: \(error)")
+            }
+            
             self.state = .idle
             self.onStateChanged?(.idle)
-        }
-        print("[AudioCapture] Stopped capturing")
-    }
-    
-    /// Pause audio capture (keeps engine running)
-    func pause() {
-        stateQueue.async { [weak self] in
-            guard let self = self else { return }
-            self.state = .paused
-            self.onStateChanged?(.paused)
-        }
-    }
-    
-    /// Resume audio capture
-    func resume() throws {
-        let currentState = stateQueue.sync { state }
-        guard currentState == .paused else {
-            return
-        }
-        
-        do {
-            try audioEngine.start()
-            stateQueue.async { [weak self] in
-                guard let self = self else { return }
-                self.state = .capturing
-                self.onStateChanged?(.capturing)
-            }
-        } catch {
-            throw AudioCaptureError.engineSetupFailed
+            self.onRecordingFinished?(url)
+            
+            print("[AudioCapture] Stopped recording. File saved to: \(url.path)")
         }
     }
     
@@ -181,199 +165,11 @@ final class AudioCapture {
         return stateQueue.sync { state }
     }
     
-    /// Get audio buffer for transcription
-    func getAudioData() -> Data? {
-        return audioBuffer.readAll()
-    }
-    
-    /// Get audio buffer as float array
-    func getAudioSamples() -> [Float]? {
-        return audioBuffer.readAllSamples()
-    }
-    
-    // MARK: - Private Methods
-    
-    private func setupAudioFormat() -> AVAudioFormat? {
-        guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: sampleRate,
-            channels: channels,
-            interleaved: false
-        ) else {
-            print("[AudioCapture] Failed to create audio format")
-            return nil
+    /// Check if currently recording
+    func isRecording() -> Bool {
+        if case .capturing = getState() {
+            return true
         }
-        
-        print("[AudioCapture] Audio format: \(Int(sampleRate))Hz, Mono, Float32")
-        return format
-    }
-    
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
-        // Only process if capturing
-        if stateQueue.sync(execute: { state }) != .capturing {
-            return
-        }
-        
-        // Add to circular buffer
-        audioBuffer.write(buffer)
-        
-        // Notify callback
-        if let audioData = audioBuffer.readAll() {
-            onAudioBufferAvailable?(audioData)
-        }
-    }
-}
-
-/// Circular buffer for efficient audio sample storage
-/// Implements a sliding window for real-time audio processing
-final class CircularBuffer {
-    
-    // MARK: - Properties
-    
-    private let sampleRate: Double
-    private let maxDuration: TimeInterval
-    private let channels: Int
-    
-    private var buffer: [Float]
-    private var writeIndex: Int = 0
-    private var readIndex: Int = 0
-    private let capacity: Int
-    
-    private let lock = NSLock()
-    
-    // MARK: - Initialization
-    
-    init(sampleRate: Double, maxDuration: TimeInterval, channels: Int) {
-        self.sampleRate = sampleRate
-        self.maxDuration = maxDuration
-        self.channels = channels
-        
-        let samplesPerChannel = Int(sampleRate * maxDuration)
-        self.capacity = samplesPerChannel * channels
-        self.buffer = [Float](repeating: 0, count: capacity)
-        
-        print("[CircularBuffer] Created with capacity: \(capacity) samples (\(maxDuration)s at \(Int(sampleRate))Hz)")
-    }
-    
-    // MARK: - Public Methods
-    
-    /// Write audio buffer to circular buffer
-    func write(_ audioBuffer: AVAudioPCMBuffer) {
-        guard let channelData = audioBuffer.floatChannelData else { return }
-        
-        let frameCount = Int(audioBuffer.frameLength)
-        
-        lock.lock()
-        defer { lock.unlock() }
-        
-        for frame in 0..<frameCount {
-            for channel in 0..<channels {
-                let sample = channelData[channel][frame]
-                buffer[writeIndex] = sample
-                writeIndex = (writeIndex + 1) % capacity
-                
-                // Handle buffer overflow - advance read index to drop oldest
-                if writeIndex == readIndex {
-                    readIndex = (readIndex + 1) % capacity
-                }
-            }
-        }
-    }
-    
-    /// Read all available samples
-    func readAll() -> Data? {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        let availableSamples = availableToRead()
-        guard availableSamples > 0 else { return nil }
-        
-        var samples = [Float]()
-        samples.reserveCapacity(availableSamples)
-        
-        var currentIndex = readIndex
-        while currentIndex != writeIndex {
-            samples.append(buffer[currentIndex])
-            currentIndex = (currentIndex + 1) % capacity
-        }
-        
-        return Data(bytes: samples, count: samples.count * MemoryLayout<Float>.size)
-    }
-    
-    /// Read all samples as float array
-    func readAllSamples() -> [Float]? {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        let availableSamples = availableToRead()
-        guard availableSamples > 0 else { return nil }
-        
-        var samples = [Float]()
-        samples.reserveCapacity(availableSamples)
-        
-        var currentIndex = readIndex
-        while currentIndex != writeIndex {
-            samples.append(buffer[currentIndex])
-            currentIndex = (currentIndex + 1) % capacity
-        }
-        
-        return samples
-    }
-    
-    /// Read samples as Data for a specific duration
-    func read(duration: TimeInterval) -> Data? {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        let targetSamples = Int(sampleRate * duration)
-        let availableSamples = availableToRead()
-        let samplesToRead = min(targetSamples, availableSamples)
-        
-        guard samplesToRead > 0 else { return nil }
-        
-        var samples = [Float]()
-        samples.reserveCapacity(samplesToRead)
-        
-        var currentIndex = readIndex
-        for _ in 0..<samplesToRead {
-            samples.append(buffer[currentIndex])
-            currentIndex = (currentIndex + 1) % capacity
-        }
-        
-        readIndex = currentIndex
-        return Data(bytes: samples, count: samples.count * MemoryLayout<Float>.size)
-    }
-    
-    /// Clear buffer
-    func clear() {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        buffer = [Float](repeating: 0, count: capacity)
-        writeIndex = 0
-        readIndex = 0
-    }
-    
-    /// Get current buffer duration
-    var currentDuration: TimeInterval {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        return Double(availableToRead()) / sampleRate
-    }
-    
-    /// Get buffer capacity
-    var maxSamples: Int {
-        return capacity
-    }
-    
-    // MARK: - Private Methods
-    
-    private func availableToRead() -> Int {
-        if writeIndex >= readIndex {
-            return writeIndex - readIndex
-        } else {
-            return capacity - readIndex + writeIndex
-        }
+        return false
     }
 }
