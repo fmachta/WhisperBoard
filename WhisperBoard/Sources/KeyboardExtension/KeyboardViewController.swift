@@ -1,45 +1,25 @@
 import UIKit
-import AVFoundation
 
-/// Simplified keyboard with dictation button only
-/// Optimized for memory efficiency in keyboard extension
+/// Ultra-lightweight keyboard extension that delegates recording to main app
+/// Keyboard extensions cannot use AVAudioSession - must use main app
 class KeyboardViewController: UIInputViewController {
     
     // MARK: - UI
     private var dictateButton: UIButton!
     private var statusLabel: UILabel!
-    private var isRecording = false
-    private var audioCapture: AudioCapture?
     private var pollTimer: Timer?
-    private var recordingStartTime: Date?
-    private var maxRecordingTimer: Timer?
-    
-    // MARK: - Constants
-    private let maxRecordingDuration: TimeInterval = 60.0 // 60 seconds max
+    private var isWaitingForTranscription = false
     
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        setupAudioSession()
+        observeTranscriptionResults()
     }
     
     deinit {
         pollTimer?.invalidate()
-        maxRecordingTimer?.invalidate()
-        if isRecording {
-            audioCapture?.stopRecording()
-        }
-    }
-    
-    /// Handle memory warnings - critical for keyboard extensions
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-        print("[Keyboard] Memory warning received!")
-        if isRecording {
-            stopRecording()
-            showError("Recording stopped: memory limit")
-        }
+        DarwinNotificationCenter.shared.removeObserver(SharedDefaults.transcriptionDoneNotificationName)
     }
     
     // MARK: - Setup
@@ -105,157 +85,143 @@ class KeyboardViewController: UIInputViewController {
         ])
     }
     
-    private func setupAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(false) // Don't activate yet, just configure
-        } catch {
-            print("[Keyboard] Audio session setup error: \(error)")
+    private func observeTranscriptionResults() {
+        DarwinNotificationCenter.shared.observe(
+            SharedDefaults.transcriptionDoneNotificationName
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleTranscriptionResult()
+            }
         }
     }
     
     // MARK: - Actions
     @objc private func dictateTapped() {
-        isRecording ? stopRecording() : startRecording()
+        if isWaitingForTranscription {
+            // Cancel/close
+            isWaitingForTranscription = false
+            pollTimer?.invalidate()
+            updateUI()
+        } else {
+            startDictation()
+        }
     }
     
     @objc private func deleteTapped() {
         textDocumentProxy.deleteBackward()
     }
     
-    // MARK: - Recording
-    private func startRecording() {
-        guard let containerURL = SharedDefaults.containerURL else {
-            showError("App Group error")
-            return
-        }
+    // MARK: - Dictation
+    private func startDictation() {
+        // Check if main app can record
+        let canRecord = SharedDefaults.sharedDefaults?.bool(forKey: "canRecordAudio") ?? false
         
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let audioURL = containerURL.appendingPathComponent("audio_\(timestamp).wav")
-        
-        audioCapture = AudioCapture()
-        
-        Task {
-            guard await audioCapture?.checkPermission() ?? false else {
-                showError("Microphone permission required")
-                return
-            }
+        if canRecord {
+            // Signal main app to start recording
+            SharedDefaults.sharedDefaults?.set(true, forKey: "shouldStartRecording")
+            SharedDefaults.sharedDefaults?.synchronize()
+            DarwinNotificationCenter.shared.post("com.fmachta.whisperboard.startRecording")
             
-            do {
-                try audioCapture?.startRecording(to: audioURL)
-                
-                await MainActor.run {
-                    isRecording = true
-                    recordingStartTime = Date()
-                    updateUI(forRecording: true)
-                    startMaxRecordingTimer()
+            isWaitingForTranscription = true
+            statusLabel.text = "Recording in app...\n(Tap to cancel)"
+            dictateButton.backgroundColor = .systemOrange
+            
+            // Start polling for result
+            startPolling()
+        } else {
+            // Open main app to grant permission/setup
+            statusLabel.text = "Open WhisperBoard app first"
+            openMainApp()
+        }
+    }
+    
+    private func openMainApp() {
+        // Try to open the container app
+        if let url = URL(string: "whisperboard://") {
+            extensionContext?.open(url) { success in
+                if !success {
+                    self.statusLabel.text = "Please open WhisperBoard app"
                 }
-                
-                audioCapture?.onRecordingFinished = { [weak self] url in
-                    self?.processRecording(url)
-                }
-                
-                audioCapture?.onError = { [weak self] error in
-                    self?.showError("Recording error")
-                    print("[Keyboard] Audio capture error: \(error)")
-                }
-                
-            } catch {
-                showError("Failed to start recording")
-                print("[Keyboard] Recording error: \(error)")
             }
-        }
-    }
-    
-    private func stopRecording() {
-        maxRecordingTimer?.invalidate()
-        maxRecordingTimer = nil
-        
-        audioCapture?.stopRecording()
-        isRecording = false
-        updateUI(forRecording: false)
-    }
-    
-    private func startMaxRecordingTimer() {
-        maxRecordingTimer?.invalidate()
-        maxRecordingTimer = Timer.scheduledTimer(withTimeInterval: maxRecordingDuration, repeats: false) { [weak self] _ in
-            self?.showError("Max duration reached")
-            self?.stopRecording()
-        }
-    }
-    
-    private func processRecording(_ url: URL) {
-        let request = SharedDefaults.TranscriptionRequest(
-            audioFileName: url.lastPathComponent,
-            language: "en",
-            sampleRate: 16000.0,
-            timestamp: Date().timeIntervalSince1970
-        )
-        
-        SharedDefaults.writeRequest(request)
-        DarwinNotificationCenter.shared.post(SharedDefaults.newAudioNotificationName)
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.statusLabel.text = "Transcribing..."
-            self?.startPolling()
-        }
-        
-        // Clean up audio file after transcription is done
-        DispatchQueue.global(qos: .background).async {
-            try? FileManager.default.removeItem(at: url)
         }
     }
     
     private func startPolling() {
         pollTimer?.invalidate()
         var attempts = 0
-        let maxAttempts = 60 // 30 seconds timeout (0.5s * 60)
+        let maxAttempts = 120 // 60 second timeout (0.5s * 120)
         
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            attempts += 1
-            
-            guard let result = SharedDefaults.readResult() else {
-                if attempts >= maxAttempts {
-                    timer.invalidate()
-                    self?.showError("Transcription timeout")
-                    SharedDefaults.clearRequest()
-                }
+            guard let self = self else {
+                timer.invalidate()
                 return
             }
             
-            timer.invalidate()
+            attempts += 1
             
-            switch result.status {
-            case .completed:
-                self?.textDocumentProxy.insertText(result.text)
-                self?.statusLabel.text = "Done"
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                    self?.statusLabel.text = "Tap to dictate"
-                }
-            case .failed:
-                self?.showError("Transcription failed: \(result.error ?? "Unknown error")")
-            case .pending, .processing:
-                self?.statusLabel.text = "Transcribing..."
-                return // Keep polling
+            guard self.isWaitingForTranscription else {
+                timer.invalidate()
+                return
             }
             
-            SharedDefaults.clearResult()
+            if attempts >= maxAttempts {
+                timer.invalidate()
+                self.isWaitingForTranscription = false
+                self.showError("Timeout - no response")
+                return
+            }
+            
+            // Check for result
+            if let result = SharedDefaults.readResult() {
+                timer.invalidate()
+                self.handleResult(result)
+            }
         }
     }
     
-    private func updateUI(forRecording: Bool) {
-        statusLabel.text = forRecording ? "Recording..." : "Tap to dictate"
-        dictateButton.backgroundColor = forRecording ? .systemOrange : .systemRed
+    private func handleTranscriptionResult() {
+        guard isWaitingForTranscription else { return }
+        
+        if let result = SharedDefaults.readResult() {
+            handleResult(result)
+        }
+    }
+    
+    private func handleResult(_ result: SharedDefaults.TranscriptionResult) {
+        isWaitingForTranscription = false
+        
+        switch result.status {
+        case .completed:
+            textDocumentProxy.insertText(result.text)
+            statusLabel.text = "Inserted ✓"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.updateUI()
+            }
+        case .failed:
+            showError("Failed: \(result.error ?? "Unknown")")
+        case .pending, .processing:
+            // Still processing, keep waiting
+            isWaitingForTranscription = true
+            statusLabel.text = "Processing..."
+            return
+        }
+        
+        SharedDefaults.clearResult()
+    }
+    
+    private func updateUI() {
+        statusLabel.text = "Tap to dictate"
+        statusLabel.textColor = .white
+        dictateButton.backgroundColor = .systemRed
     }
     
     private func showError(_ message: String) {
         statusLabel.text = message
         statusLabel.textColor = .systemRed
+        dictateButton.backgroundColor = .systemRed
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.statusLabel.text = "Tap to dictate"
-            self?.statusLabel.textColor = .white
+            self?.updateUI()
         }
     }
 }
