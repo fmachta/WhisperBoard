@@ -25,6 +25,12 @@ struct SettingsView: View {
         .storage
     ]
     
+    // MARK: - Initialization
+    
+    init(transcriber: WhisperTranscriber = WhisperTranscriber()) {
+        _transcriber = StateObject(wrappedValue: transcriber)
+    }
+    
     // MARK: - Body
     
     var body: some View {

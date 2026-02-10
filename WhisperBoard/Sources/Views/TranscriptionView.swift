@@ -142,7 +142,7 @@ struct TranscriptionView: View {
             ScrollView(showsIndicators: false) {
                 HStack(alignment: .top, spacing: 8) {
                     // Transcription text
-                    Text(displayText ?? NSAttributedString(string: transcriptionText.isEmpty ? "Tap microphone and speak..." : transcriptionText))
+                    Text(displayText?.string ?? (transcriptionText.isEmpty ? "Tap microphone and speak..." : transcriptionText))
                         .font(.body)
                         .foregroundStyle(.primary)
                         .lineLimit(3)

@@ -208,10 +208,8 @@ class KeyboardViewController: UIInputViewController {
     }
     
     private func updateKeyboardAppearance() {
-        if let textInput = textDocumentProxy {
-            let textStyle = textInput.keyboardAppearance
-            isDarkMode = textStyle == .dark
-        }
+        let textStyle = textDocumentProxy.keyboardAppearance ?? .default
+        isDarkMode = (textStyle == UIKeyboardAppearance.dark)
         
         keyboardView.backgroundColor = isDarkMode ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0) : UIColor(red: 0.82, green: 0.83, blue: 0.85, alpha: 1.0)
         rebuildKeyboard()
@@ -252,9 +250,9 @@ class KeyboardViewController: UIInputViewController {
         rowStack.alignment = .fill
         rowStack.spacing = 6
         
-        let totalSpacing = keys.count - 1
+        let totalSpacing = CGFloat(keys.count - 1)
         let totalKeyWidth = keys.reduce(0) { $0 + $1.width }
-        let remainingSpace = 320 - totalKeyWidth - totalSpacing * 6
+        let remainingSpace = CGFloat(320) - totalKeyWidth - totalSpacing * 6
         let extraSpacing = remainingSpace / CGFloat(keys.count + 1)
         
         for key in keys {
@@ -502,7 +500,7 @@ class KeyboardViewController: UIInputViewController {
         stopRecordingIndicator()
         stopRecordingTimer()
         updateMicButtonForIdle()
-        notificationGenerator.notificationOccurred(.selection)
+        notificationGenerator.notificationOccurred(.success)
         
         // Process recorded audio
         if let audioData = capture.getAudioData() {
@@ -676,9 +674,8 @@ class KeyboardViewController: UIInputViewController {
         )
         
         alert.addAction(UIAlertAction(title: "Settings", style: .default) { _ in
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
+            // Note: Cannot open Settings from keyboard extension
+            // User must manually go to Settings > General > Keyboard
         })
         
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -796,13 +793,6 @@ class KeyboardButton: UIButton {
         }
         // Add other key type configurations...
     }
-}
-
-// MARK: - UIKeyboardAppearance Extension
-extension UIKeyboardAppearance {
-    static var dark: UIKeyboardAppearance { .dark }
-    static var light: UIKeyboardAppearance { .light }
-    static var `default`: UIKeyboardAppearance { .default }
 }
 
 // MARK: - UIColor Extension

@@ -3,46 +3,7 @@ import UIKit
 import SwiftUI
 import WhisperKit
 
-// MARK: - WhisperTranscriber Stub (Inline for Keyboard Extension)
-
-/// Minimal transcriber stub for keyboard extension use
-/// Provides interface compatibility with main app's WhisperTranscriber
-final class WhisperTranscriber: ObservableObject {
-    
-    struct TranscriptionResult {
-        let text: String
-        let timestamp: Date
-        let confidence: Float?
-        let isFinal: Bool
-        let audioDuration: TimeInterval
-    }
-    
-    // MARK: - Properties
-    
-    var isModelLoaded: Bool = false
-    
-    let transcriptionQueue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
-    
-    // MARK: - Model Management
-    
-    func loadModel(_ model: Any) async throws {
-        // Model loading stub
-    }
-    
-    func transcribe(_ audioData: Data) async throws -> TranscriptionResult {
-        // Transcription stub - returns empty result
-        return TranscriptionResult(
-            text: "",
-            timestamp: Date(),
-            confidence: nil,
-            isFinal: true,
-            audioDuration: 0
-        )
-    }
-    
-}
-
-// MARK: - Transcription View (Inline for Keyboard Extension)
+// MARK: - Transcription View
 
 /// Live transcription overlay view showing real-time speech-to-text results
 /// Designed for keyboard extension with minimal footprint
@@ -139,10 +100,6 @@ extension WhisperTranscriber {
         return false
     }
     
-    /// Last transcription result
-    var lastResult: TranscriptionResult? {
-        return nil
-    }
 }
 
 /// Integration helpers for wiring WhisperKit to KeyboardViewController

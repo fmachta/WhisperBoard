@@ -6,6 +6,8 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: WhisperBoard/Sources/App
+      - path: WhisperBoard/Sources/Views
+      - path: WhisperBoard/Sources/WhisperKit
       - path: WhisperBoard/Resources
         excludes:
           - "Info.plist"
@@ -27,6 +29,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: WhisperBoard/Sources/KeyboardExtension
+      - path: WhisperBoard/Sources/WhisperKit
       - path: WhisperBoard/KeyboardExtension/Resources
         excludes:
           - "KeyboardInfo.plist"
