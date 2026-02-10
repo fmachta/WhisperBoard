@@ -328,9 +328,11 @@ final class WhisperTranscriber: ObservableObject {
     }
     
     private func initializeWhisperKit(modelPath: URL, modelType: WhisperModelType) async throws {
-        // Initialize WhisperKit with the model
-        // TODO: Use correct WhisperKit initialization
-        whisper = try await WhisperKit()
+        // Initialize WhisperKit with the correct config
+        var config = WhisperKitConfig(model: modelType.rawValue)
+        config.downloadBase = URL(string: "https://huggingface.co/argmax/whisperkit-coreml")
+        
+        whisper = try await WhisperKit(config)
         
         // Note: AutomaticSpeechRecognizer is not part of WhisperKit
         // Transcription is done directly through WhisperKit instance
