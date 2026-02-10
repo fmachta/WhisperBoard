@@ -122,11 +122,8 @@ final class WhisperTranscriber: ObservableObject {
                 }
             }
             
-            // Load the model
-            let modelPath = try await modelManager.getModelPath(modelType)
-            
-            // Initialize WhisperKit
-            try await initializeWhisperKit(modelPath: modelPath, modelType: modelType)
+            // Initialize WhisperKit (handles model downloading automatically)
+            try await initializeWhisperKit(modelType: modelType)
             
             currentModelType = modelType
             
@@ -311,7 +308,7 @@ final class WhisperTranscriber: ObservableObject {
         }
     }
     
-    private func initializeWhisperKit(modelPath: URL, modelType: WhisperModelType) async throws {
+    private func initializeWhisperKit(modelType: WhisperModelType) async throws {
         // Initialize WhisperKit with the correct config
         let config = WhisperKitConfig(model: modelType.rawValue)
         
