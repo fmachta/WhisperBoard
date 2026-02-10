@@ -5,29 +5,6 @@ import Combine
 // MARK: - WhisperKit Extension for KeyboardViewController
 extension KeyboardViewController {
     
-    // MARK: - Properties
-    
-    /// Whisper transcriber for speech-to-text
-    private(set) var whisperTranscriber: WhisperTranscriber?
-    
-    /// Transcription overlay hosting controller
-    private var transcriptionOverlay: UIHostingController<TranscriptionView>?
-    
-    /// UIView that hosts the transcription overlay
-    private var transcriptionOverlayContainer: UIView?
-    
-    /// Combine cancellables
-    private var cancellables = Set<AnyCancellable>()
-    
-    /// Current transcription state
-    @Published private(set) var transcriptionState: KeyboardTranscriptionState = .idle
-    
-    /// Model loading progress
-    @Published private(set) var modelLoadProgress: Double = 0
-    
-    /// Flag for model loading state
-    private var isModelLoading = false
-    
     // MARK: - Setup Methods
     
     /// Setup WhisperKit integration
@@ -314,18 +291,6 @@ extension KeyboardViewController {
                 }
             }
         }
-    }
-    
-    // MARK: - Memory Management
-    
-    /// Handle memory warning - release non-essential resources
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-        
-        whisperTranscriber?.unloadModel()
-        hideTranscriptionOverlay()
-        
-        print("[KeyboardViewController] Memory warning - model unloaded")
     }
     
     // MARK: - Error Display

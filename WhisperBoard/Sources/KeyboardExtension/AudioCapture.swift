@@ -15,7 +15,7 @@ final class AudioCapture {
         case notCapturing
     }
     
-    enum CaptureState {
+    enum CaptureState: Equatable {
         case idle
         case capturing
         case paused
@@ -81,10 +81,9 @@ final class AudioCapture {
     
     /// Start audio capture
     func start() throws {
-        stateQueue.sync {
-            if state == .capturing {
-                throw AudioCaptureError.captureInProgress
-            }
+        let currentState = stateQueue.sync { state }
+        if currentState == .capturing {
+            throw AudioCaptureError.captureInProgress
         }
         
         let format = setupAudioFormat()
@@ -145,12 +144,9 @@ final class AudioCapture {
     
     /// Resume audio capture
     func resume() throws {
-        stateQueue.sync {
-            guard state == .paused else {
-                if state != .capturing {
-                    return
-                }
-            }
+        let currentState = stateQueue.sync { state }
+        guard currentState == .paused else {
+            return
         }
         
         do {

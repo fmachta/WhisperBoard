@@ -1,6 +1,149 @@
 import Foundation
 import UIKit
 import SwiftUI
+import WhisperKit
+
+// MARK: - WhisperTranscriber Stub (Inline for Keyboard Extension)
+
+/// Minimal transcriber stub for keyboard extension use
+/// Provides interface compatibility with main app's WhisperTranscriber
+final class WhisperTranscriber: ObservableObject {
+    
+    struct TranscriptionResult {
+        let text: String
+        let timestamp: Date
+        let confidence: Float?
+        let isFinal: Bool
+        let audioDuration: TimeInterval
+    }
+    
+    // MARK: - Properties
+    
+    var isModelLoaded: Bool = false
+    
+    let transcriptionQueue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
+    
+    // MARK: - Model Management
+    
+    func loadModel(_ model: Any) async throws {
+        // Model loading stub
+    }
+    
+    func transcribe(_ audioData: Data) async throws -> TranscriptionResult {
+        // Transcription stub - returns empty result
+        return TranscriptionResult(
+            text: "",
+            timestamp: Date(),
+            confidence: nil,
+            isFinal: true,
+            audioDuration: 0
+        )
+    }
+    
+}
+
+// MARK: - Transcription View (Inline for Keyboard Extension)
+
+/// Live transcription overlay view showing real-time speech-to-text results
+/// Designed for keyboard extension with minimal footprint
+struct TranscriptionView: View {
+    
+    // MARK: - Properties
+    
+    @ObservedObject var transcriber: WhisperTranscriber
+    @State private var transcriptionText: String = ""
+    @State private var isProcessing = false
+    
+    // Configuration
+    var maxHeight: CGFloat = 120
+    var onInsertText: ((String) -> Void)?
+    var onDismiss: (() -> Void)?
+    
+    // MARK: - UI State
+    
+    @State private var displayText: String = ""
+    @State private var showingResults = false
+    
+    // MARK: - Body
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Header with status
+            HStack {
+                Circle()
+                    .fill(isProcessing ? Color.orange : Color.green)
+                    .frame(width: 8, height: 8)
+                
+                Text(isProcessing ? "Processing..." : "Ready")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: { onDismiss?() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            // Transcription text area
+            Text(displayText.isEmpty ? "Tap mic to start speaking" : displayText)
+                .font(.body)
+                .foregroundColor(displayText.isEmpty ? .secondary : .primary)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+            
+            // Insert button
+            if !displayText.isEmpty {
+                HStack {
+                    Spacer()
+                    Button(action: { onInsertText?(displayText) }) {
+                        Label("Insert", systemImage: "arrow.right.circle.fill")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .frame(maxHeight: maxHeight)
+        .onChange(of: transcriber.currentTranscription) { newValue in
+            displayText = newValue
+            showingResults = !newValue.isEmpty
+        }
+        .onChange(of: transcriber.isProcessing) { processing in
+            isProcessing = processing
+        }
+    }
+}
+
+// MARK: - WhisperTranscriber Extension for Keyboard
+
+extension WhisperTranscriber {
+    
+    /// Current transcription text for UI binding
+    var currentTranscription: String {
+        lastResult?.text ?? ""
+    }
+    
+    /// Whether transcription is currently processing
+    var isProcessing: Bool {
+        // Check current state
+        return false
+    }
+    
+    /// Last transcription result
+    var lastResult: TranscriptionResult? {
+        return nil
+    }
+}
 
 /// Integration helpers for wiring WhisperKit to KeyboardViewController
 /// Handles text insertion, UI updates, and keyboard-specific adaptations
@@ -121,24 +264,6 @@ struct WhisperKitIntegration {
                 // Accumulate audio for chunk-based transcription
             }
         }
-    }
-}
-
-// MARK: - Keyboard-Specific Extensions
-
-extension WhisperTranscriber {
-    
-    /// Create a transcriber optimized for keyboard extension use
-    static func forKeyboard() -> WhisperTranscriber {
-        let manager = ModelManager()
-        let transcriber = WhisperTranscriber(modelManager: manager)
-        
-        // Pre-load base model for keyboard
-        Task {
-            try? await transcriber.loadModel(.base)
-        }
-        
-        return transcriber
     }
 }
 

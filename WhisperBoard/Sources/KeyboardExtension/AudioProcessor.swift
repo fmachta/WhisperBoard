@@ -109,7 +109,7 @@ final class AudioProcessor {
         var maxVal: Float = 0
         
         vDSP_normalize(samples, 1, nil, 1, &minVal, &maxVal, vDSP_Length(samples.count))
-        vDSP_normalizedMean(samples, 1, &mean, vDSP_Length(samples.count))
+        vDSP_meanv(samples, 1, &mean, vDSP_Length(samples.count))
         
         var variance: Float = 0
         for sample in samples {
@@ -138,12 +138,10 @@ final class AudioProcessor {
     /// Remove DC offset from signal
     private func removeDCOffset(_ samples: [Float]) -> [Float] {
         var mean: Float = 0
-        vDSP_normalizedMean(samples, 1, &mean, vDSP_Length(samples.count))
+        vDSP_meanv(samples, 1, &mean, vDSP_Length(samples.count))
         
-        var result = samples
-        vDSP_vsbsa(samples, 1, [mean], 1, &result, 1, vDSP_Length(samples.count))
-        
-        return result
+        // Subtract mean from each sample manually
+        return samples.map { $0 - mean }
     }
     
     /// Apply pre-emphasis filter to enhance high frequencies
@@ -184,9 +182,4 @@ struct SignalStats {
     let sampleCount: Int
 }
 
-/// Helper extension for vDSP operations
-private extension vDSP {
-    static func normalizedMean(_ vector: [Float], _ stride: Int, _ result: UnsafeMutablePointer<Float>, _ n: vDSP_Length) {
-        vDSP_normalizedMean(vector, stride, result, n)
-    }
-}
+// End of AudioProcessor

@@ -1,6 +1,7 @@
 import UIKit
 import SwiftUI
 import AVFoundation
+import Combine
 
 // MARK: - Keyboard Row Configuration
 struct KeyboardRow {
@@ -52,50 +53,59 @@ class KeyboardViewController: UIInputViewController {
     private var recordingTimer: Timer?
     private var audioPermissionChecked = false
     
+    // MARK: - WhisperKit Properties (moved from extension)
+    private(set) var whisperTranscriber: WhisperTranscriber?
+    private var transcriptionOverlay: UIHostingController<TranscriptionView>?
+    private var transcriptionOverlayContainer: UIView?
+    private var cancellables = Set<AnyCancellable>()
+    @Published private(set) var transcriptionState: KeyboardTranscriptionState = .idle
+    @Published private(set) var modelLoadProgress: Double = 0
+    private var isModelLoading = false
+    
     // MARK: - Keyboard Layout
     private let row1: [Key] = [
-        Key(displayText: "Q", outputText: "q", type: .letter, width: 42),
-        Key(displayText: "W", outputText: "w", type: .letter, width: 42),
-        Key(displayText: "E", outputText: "e", type: .letter, width: 42),
-        Key(displayText: "R", outputText: "r", type: .letter, width: 42),
-        Key(displayText: "T", outputText: "t", type: .letter, width: 42),
-        Key(displayText: "Y", outputText: "y", type: .letter, width: 42),
-        Key(displayText: "U", outputText: "u", type: .letter, width: 42),
-        Key(displayText: "I", outputText: "i", type: .letter, width: 42),
-        Key(displayText: "O", outputText: "o", type: .letter, width: 42),
-        Key(displayText: "P", outputText: "p", type: .letter, width: 42),
+        Key(displayText: "Q", outputText: "q", keyType: .letter, width: 42),
+        Key(displayText: "W", outputText: "w", keyType: .letter, width: 42),
+        Key(displayText: "E", outputText: "e", keyType: .letter, width: 42),
+        Key(displayText: "R", outputText: "r", keyType: .letter, width: 42),
+        Key(displayText: "T", outputText: "t", keyType: .letter, width: 42),
+        Key(displayText: "Y", outputText: "y", keyType: .letter, width: 42),
+        Key(displayText: "U", outputText: "u", keyType: .letter, width: 42),
+        Key(displayText: "I", outputText: "i", keyType: .letter, width: 42),
+        Key(displayText: "O", outputText: "o", keyType: .letter, width: 42),
+        Key(displayText: "P", outputText: "p", keyType: .letter, width: 42),
     ]
     
     private let row2: [Key] = [
-        Key(displayText: "A", outputText: "a", type: .letter, width: 42),
-        Key(displayText: "S", outputText: "s", type: .letter, width: 42),
-        Key(displayText: "D", outputText: "d", type: .letter, width: 42),
-        Key(displayText: "F", outputText: "f", type: .letter, width: 42),
-        Key(displayText: "G", outputText: "g", type: .letter, width: 42),
-        Key(displayText: "H", outputText: "h", type: .letter, width: 42),
-        Key(displayText: "J", outputText: "j", type: .letter, width: 42),
-        Key(displayText: "K", outputText: "k", type: .letter, width: 42),
-        Key(displayText: "L", outputText: "l", type: .letter, width: 42),
+        Key(displayText: "A", outputText: "a", keyType: .letter, width: 42),
+        Key(displayText: "S", outputText: "s", keyType: .letter, width: 42),
+        Key(displayText: "D", outputText: "d", keyType: .letter, width: 42),
+        Key(displayText: "F", outputText: "f", keyType: .letter, width: 42),
+        Key(displayText: "G", outputText: "g", keyType: .letter, width: 42),
+        Key(displayText: "H", outputText: "h", keyType: .letter, width: 42),
+        Key(displayText: "J", outputText: "j", keyType: .letter, width: 42),
+        Key(displayText: "K", outputText: "k", keyType: .letter, width: 42),
+        Key(displayText: "L", outputText: "l", keyType: .letter, width: 42),
     ]
     
     private let row3: [Key] = [
-        Key(displayText: "⇧", outputText: "", type: .shift, width: 52),
-        Key(displayText: "Z", outputText: "z", type: .letter, width: 42),
-        Key(displayText: "X", outputText: "x", type: .letter, width: 42),
-        Key(displayText: "C", outputText: "c", type: .letter, width: 42),
-        Key(displayText: "V", outputText: "v", type: .letter, width: 42),
-        Key(displayText: "B", outputText: "b", type: .letter, width: 42),
-        Key(displayText: "N", outputText: "n", type: .letter, width: 42),
-        Key(displayText: "M", outputText: "m", type: .letter, width: 42),
-        Key(displayText: "⌫", outputText: "", type: .backspace, width: 52),
+        Key(displayText: "⇧", outputText: "", keyType: .shift, width: 52),
+        Key(displayText: "Z", outputText: "z", keyType: .letter, width: 42),
+        Key(displayText: "X", outputText: "x", keyType: .letter, width: 42),
+        Key(displayText: "C", outputText: "c", keyType: .letter, width: 42),
+        Key(displayText: "V", outputText: "v", keyType: .letter, width: 42),
+        Key(displayText: "B", outputText: "b", keyType: .letter, width: 42),
+        Key(displayText: "N", outputText: "n", keyType: .letter, width: 42),
+        Key(displayText: "M", outputText: "m", keyType: .letter, width: 42),
+        Key(displayText: "⌫", outputText: "", keyType: .backspace, width: 52),
     ]
     
     private let row4: [Key] = [
-        Key(displayText: "123", outputText: "", type: .numbers, width: 52),
-        Key(displayText: "🌐", outputText: "", type: .globe, width: 44),
-        Key(displayText: "", outputText: " ", type: .space, width: 150),
-        Key(displayText: "", outputText: "", type: .mic, width: 68),
-        Key(displayText: "return", outputText: "\n", type: .returnKey, width: 88),
+        Key(displayText: "123", outputText: "", keyType: .numbers, width: 52),
+        Key(displayText: "🌐", outputText: "", keyType: .globe, width: 44),
+        Key(displayText: "", outputText: " ", keyType: .space, width: 150),
+        Key(displayText: "", outputText: "", keyType: .mic, width: 68),
+        Key(displayText: "return", outputText: "\n", keyType: .returnKey, width: 88),
     ]
     
     // MARK: - Lifecycle

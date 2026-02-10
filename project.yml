@@ -1,0 +1,60 @@
+name: WhisperBoard
+targets:
+  WhisperBoard:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WhisperBoard/Sources/App
+      - path: WhisperBoard/Resources
+        excludes:
+          - "Info.plist"
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.fmachta.whisperboard
+      CODE_SIGN_ENTITLEMENTS: WhisperBoard/Resources/WhisperBoard.entitlements
+      INFOPLIST_FILE: WhisperBoard/Resources/Info.plist
+    dependencies:
+      - target: WhisperBoardKeyboard
+      - package: WhisperKit
+      - package: KeyboardKit
+    scheme:
+      testTargets:
+        - WhisperBoardTests
+      
+  WhisperBoardKeyboard:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WhisperBoard/Sources/KeyboardExtension
+      - path: WhisperBoard/KeyboardExtension/Resources
+        excludes:
+          - "KeyboardInfo.plist"
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.fmachta.whisperboard.keyboard
+      CODE_SIGN_ENTITLEMENTS: WhisperBoard/KeyboardExtension/Resources/KeyboardExtension.entitlements
+      INFOPLIST_FILE: WhisperBoard/KeyboardExtension/Resources/KeyboardInfo.plist
+    dependencies:
+      - package: WhisperKit
+      
+  WhisperBoardTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WhisperBoardTests
+    dependencies:
+      - target: WhisperBoard
+
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    from: 0.1.0
+  KeyboardKit:
+    url: https://github.com/KeyboardKit/KeyboardKit
+    from: 8.0.0
+
+settings:
+  CODE_SIGN_STYLE: Automatic
+  DEVELOPMENT_TEAM: ""
+  SWIFT_VERSION: "5.9"

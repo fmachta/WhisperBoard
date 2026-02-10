@@ -54,7 +54,7 @@ final class VoiceActivityDetector {
     
     // MARK: - Properties
     
-    private let config: VADConfig
+    private var config: VADConfig
     private let audioProcessor: AudioProcessor
     
     private var currentState: VADState = .silence
