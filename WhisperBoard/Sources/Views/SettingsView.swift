@@ -1,186 +1,145 @@
 import SwiftUI
 
-/// Settings view for model management, language selection, and app configuration
+/// Settings for model management, language selection, and app info.
 struct SettingsView: View {
-    
-    // MARK: - Properties
-    
+
     @StateObject private var modelManager = ModelManager()
-    @StateObject private var transcriber: WhisperTranscriber
-    
     @State private var selectedLanguage: String = "Auto-detect"
     @State private var showDeleteConfirmation = false
     @State private var modelToDelete: WhisperModelType?
-    @State private var showDownloadProgress = false
-    
-    // Navigation
     @Environment(\.dismiss) private var dismiss
-    
-    // MARK: - Sections
-    
-    private let sections: [SettingsSection] = [
-        .models,
-        .language,
-        .about,
-        .storage
-    ]
-    
-    // MARK: - Initialization
-    
-    init(transcriber: WhisperTranscriber = WhisperTranscriber()) {
-        _transcriber = StateObject(wrappedValue: transcriber)
+
+    init() {
+        // Load persisted language
+        if let lang = SharedDefaults.sharedDefaults?.string(forKey: SharedDefaults.selectedLanguageKey) {
+            _selectedLanguage = State(initialValue: lang)
+        }
     }
-    
-    // MARK: - Body
-    
+
     var body: some View {
         NavigationStack {
             List {
-                // Model Selection Section
                 modelSection
-                
-                // Language Section
                 languageSection
-                
-                // Storage Section
                 storageSection
-                
-                // About Section
                 aboutSection
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    Button("Done") { dismiss() }
                 }
             }
-            .confirmationDialog(
-                "Delete Model",
-                isPresented: $showDeleteConfirmation,
-                presenting: modelToDelete
-            ) { model in
-                Button("Delete \(model.displayName)", role: .destructive) {
-                    deleteModel(model)
-                }
+            .confirmationDialog("Delete Model", isPresented: $showDeleteConfirmation, presenting: modelToDelete) { model in
+                Button("Delete \(model.displayName)", role: .destructive) { modelManager.deleteModel(model) }
             } message: { model in
-                Text("This will remove \(model.estimatedSize) of model files from your device.")
+                Text("Remove \(model.estimatedSize) of cached model data.")
             }
         }
     }
-    
-    // MARK: - Model Section
-    
+
+    // ── Model Section ──
+
     private var modelSection: some View {
         Section {
             ForEach(WhisperModelType.allCases) { model in
-                ModelRow(
-                    model: model,
-                    modelManager: modelManager,
-                    isSelected: modelManager.selectedModel == model,
-                    isDownloading: modelManager.currentDownloadTask == model.rawValue,
-                    downloadProgress: modelManager.downloadProgress
-                )
+                ModelRow(model: model,
+                         modelManager: modelManager,
+                         isSelected: modelManager.selectedModel == model,
+                         isDownloading: modelManager.currentDownloadTask == model.rawValue,
+                         downloadProgress: modelManager.downloadProgress)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    selectModel(model)
+                .onTapGesture { selectModel(model) }
+                .swipeActions(edge: .trailing) {
+                    if modelManager.isModelDownloaded(model) {
+                        Button(role: .destructive) {
+                            modelToDelete = model
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             }
         } header: {
             Text("Whisper Model")
         } footer: {
-            Text("Larger models are more accurate but use more storage and battery.")
+            Text("Larger models give better accuracy but use more storage.")
         }
     }
-    
-    // MARK: - Language Section
-    
+
+    // ── Language Section ──
+
     private var languageSection: some View {
         Section {
             Picker("Language", selection: $selectedLanguage) {
                 Text("Auto-detect").tag("Auto-detect")
                 Divider()
-                Text("English").tag("English")
-                Text("Spanish").tag("Spanish")
-                Text("French").tag("French")
-                Text("German").tag("German")
-                Text("Chinese").tag("Chinese")
-                Text("Japanese").tag("Japanese")
-                Text("Korean").tag("Korean")
+                ForEach(["English","Spanish","French","German","Chinese","Japanese","Korean","Arabic","Portuguese","Russian"], id: \.self) {
+                    Text($0).tag($0)
+                }
             }
             .pickerStyle(.inline)
             .labelsHidden()
+            .onChange(of: selectedLanguage) { _, lang in
+                SharedDefaults.sharedDefaults?.set(lang, forKey: SharedDefaults.selectedLanguageKey)
+            }
         } header: {
             Text("Language")
         } footer: {
-            Text("Auto-detect automatically identifies the spoken language.")
+            Text("Auto-detect identifies the spoken language automatically.")
         }
     }
-    
-    // MARK: - Storage Section
-    
+
+    // ── Storage Section ──
+
     private var storageSection: some View {
         Section {
             HStack {
-                Label("Storage Used", systemImage: "internaldrive")
+                Label("Models Cached", systemImage: "internaldrive")
                 Spacer()
-                Text(modelManager.getFormattedStorageUsed())
-                    .foregroundStyle(.secondary)
+                Text(modelManager.getFormattedStorageUsed()).foregroundStyle(.secondary)
             }
-            
             HStack {
-                Label("Available Space", systemImage: "externaldrive")
+                Label("Free Space", systemImage: "externaldrive")
                 Spacer()
-                Text(formattedAvailableSpace)
+                Text(ByteCountFormatter.string(fromByteCount: modelManager.getAvailableDiskSpace(), countStyle: .file))
                     .foregroundStyle(.secondary)
             }
-            
-            Button {
-                clearAllModels()
-            } label: {
+            Button(role: .destructive) { modelManager.clearAllModels() } label: {
                 Label("Clear All Models", systemImage: "trash")
-                    .foregroundStyle(.red)
             }
             .disabled(modelManager.downloadedModels.isEmpty)
         } header: {
             Text("Storage")
         }
     }
-    
-    // MARK: - About Section
-    
+
+    // ── About Section ──
+
     private var aboutSection: some View {
         Section {
             HStack {
                 Label("Version", systemImage: "info.circle")
                 Spacer()
-                Text("1.0.0")
-                    .foregroundStyle(.secondary)
+                Text("1.0.0").foregroundStyle(.secondary)
             }
-            
-            Link(destination: URL(string: "https://github.com/fmachta/WhisperBoard")!) {
-                Label("GitHub Repository", systemImage: "chevron.left.forwardslash.chevron.right")
+            if let url = URL(string: "https://github.com/fmachta/WhisperBoard") {
+                Link(destination: url) {
+                    Label("GitHub Repository", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
             }
-            
-            Link(destination: URL(string: "https://github.com/fmachta/WhisperBoard/issues")!) {
-                Label("Report an Issue", systemImage: "exclamationmark.triangle")
-            }
-            
             DisclosureGroup {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Voice Commands:")
-                        .font(.headline)
-                    
+                VStack(alignment: .leading, spacing: 8) {
                     VoiceCommandRow(command: "period", result: ".")
                     VoiceCommandRow(command: "comma", result: ",")
                     VoiceCommandRow(command: "question mark", result: "?")
                     VoiceCommandRow(command: "exclamation mark", result: "!")
                     VoiceCommandRow(command: "new line", result: "↵")
-                    VoiceCommandRow(command: "delete last word", result: "⌫")
+                    VoiceCommandRow(command: "new paragraph", result: "↵↵")
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
             } label: {
                 Label("Voice Commands", systemImage: "mic.badge.plus")
             }
@@ -188,67 +147,21 @@ struct SettingsView: View {
             Text("About")
         }
     }
-    
-    // MARK: - Helper Properties
-    
-    private var formattedAvailableSpace: String {
-        let bytes = modelManager.getAvailableDiskSpace()
-        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-    
-    // MARK: - Actions
-    
+
+    // ── Actions ──
+
     private func selectModel(_ model: WhisperModelType) {
-        // Check if model is downloaded
-        Task {
-            let isDownloaded = try await modelManager.isModelDownloaded(model)
-            
-            await MainActor.run {
-                if isDownloaded {
-                    modelManager.selectedModel = model
+        if modelManager.isModelDownloaded(model) {
+            modelManager.saveSelectedModel(model)
+        } else {
+            Task {
+                do {
+                    try await modelManager.downloadModel(model)
                     modelManager.saveSelectedModel(model)
-                } else {
-                    // Download model
-                    downloadModel(model)
+                } catch {
+                    print("[Settings] Download failed: \(error)")
                 }
             }
-        }
-    }
-    
-    private func downloadModel(_ model: WhisperModelType) {
-        Task {
-            do {
-                try await modelManager.downloadModel(model) { progress in
-                    Task { @MainActor in
-                        // Update UI progress
-                    }
-                }
-                
-                modelManager.selectedModel = model
-                modelManager.saveSelectedModel(model)
-            } catch {
-                print("Failed to download model: \(error)")
-            }
-        }
-    }
-    
-    private func deleteModel(_ model: WhisperModelType) {
-        do {
-            try modelManager.deleteModel(model)
-            
-            if modelManager.selectedModel == model {
-                modelManager.selectedModel = .base
-            }
-        } catch {
-            print("Failed to delete model: \(error)")
-        }
-    }
-    
-    private func clearAllModels() {
-        do {
-            try modelManager.clearAllModels()
-        } catch {
-            print("Failed to clear models: \(error)")
         }
     }
 }
@@ -261,80 +174,41 @@ struct ModelRow: View {
     let isSelected: Bool
     let isDownloading: Bool
     let downloadProgress: Double
-    
+
     var body: some View {
         HStack {
-            // Model selection indicator
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-            } else {
-                Image(systemName: "circle")
-                    .foregroundStyle(.secondary)
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? .blue : .secondary)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.displayName).fontWeight(.medium)
+                Text("\(model.estimatedSize) · \(model.recommendedUse)")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.displayName)
-                    .font(.body)
-                    .fontWeight(.medium)
-                
-                Text(model.estimatedSize)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
+
             Spacer()
-            
-            // Status
+
             if isDownloading {
-                ProgressView(value: downloadProgress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 60)
-            } else if modelManager.downloadedModels.contains(model) {
-                Image(systemName: "arrow.down.circle")
-                    .foregroundStyle(.green)
+                ProgressView(value: downloadProgress).progressViewStyle(.linear).frame(width: 60)
+            } else if modelManager.isModelDownloaded(model) {
+                Image(systemName: "checkmark").foregroundStyle(.green).font(.caption)
             } else {
-                Image(systemName: "icloud.and.arrow.down")
-                    .foregroundStyle(.secondary)
+                Image(systemName: "icloud.and.arrow.down").foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 }
 
 struct VoiceCommandRow: View {
-    let command: String
-    let result: String
-    
+    let command: String; let result: String
     var body: some View {
         HStack {
-            Text("\"\(command)\"")
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-            
-            Image(systemName: "arrow.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            
-            Text("\"\(result)\"")
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.primary)
+            Text("\"\(command)\"").font(.system(.callout, design: .monospaced)).foregroundStyle(.secondary)
+            Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+            Text("\"\(result)\"").font(.system(.callout, design: .monospaced))
         }
     }
 }
 
-// MARK: - Section Type
-
-enum SettingsSection: String, CaseIterable {
-    case models = "Models"
-    case language = "Language"
-    case storage = "Storage"
-    case about = "About"
-}
-
-// MARK: - Preview
-
-#Preview {
-    SettingsView(transcriber: WhisperTranscriber())
-}
+#Preview { SettingsView() }

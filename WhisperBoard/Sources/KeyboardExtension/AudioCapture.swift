@@ -54,45 +54,64 @@ final class AudioCapture {
     
     // MARK: - Public Methods
     
-    /// Check microphone permission status
+    /// Check microphone permission status.
     func checkPermission() async -> Bool {
-        switch AVAudioApplication.shared.recordPermission {
-        case .granted:
-            return true
-        case .denied:
-            return false
-        case .undetermined:
-            return await requestPermission()
-        @unknown default:
-            return false
+        if #available(iOS 17.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:  return true
+            case .denied:   return false
+            case .undetermined: return await requestPermission()
+            @unknown default:   return false
+            }
+        } else {
+            switch AVAudioSession.sharedInstance().recordPermission {
+            case .granted:      return true
+            case .denied:       return false
+            case .undetermined: return await requestPermission()
+            @unknown default:   return false
+            }
         }
     }
-    
-    /// Request microphone permission
+
+    /// Request microphone permission.
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
+            if #available(iOS 17.0, *) {
+                AVAudioApplication.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            } else {
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
             }
         }
     }
     
-    /// Start audio capture
+    /// Start audio capture.
     func start() throws {
         let currentState = stateQueue.sync { state }
         if currentState == .capturing {
             throw AudioCaptureError.captureInProgress
         }
-        
+
+        // Configure audio session for keyboard extension recording
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setPreferredSampleRate(sampleRate)
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+
         guard let format = setupAudioFormat() else {
             throw AudioCaptureError.engineSetupFailed
         }
-        
+
+        audioBuffer.clear()
+
         // Configure input node
         inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
             self?.processAudioBuffer(buffer, time: time)
         }
-        
+
         // Start audio engine
         do {
             try audioEngine.start()

@@ -2,12 +2,14 @@ import Foundation
 import WhisperKit
 import Combine
 
-/// Main transcription coordinator using WhisperKit for on-device speech recognition
-/// Handles model loading, transcription, and voice command processing
+/// Transcription coordinator for the main app.
+/// Wraps WhisperKit and provides model lifecycle, transcription, and voice command processing.
+/// The keyboard extension does NOT use this class – it communicates via TranscriptionService.
+
 final class WhisperTranscriber: ObservableObject {
-    
+
     // MARK: - Types
-    
+
     enum TranscriptionError: Error, LocalizedError {
         case modelNotLoaded
         case modelDownloadFailed(String)
@@ -15,25 +17,19 @@ final class WhisperTranscriber: ObservableObject {
         case audioBufferEmpty
         case unsupportedLanguage
         case initializationFailed(String)
-        
+
         var errorDescription: String? {
             switch self {
-            case .modelNotLoaded:
-                return "Whisper model not loaded"
-            case .modelDownloadFailed(let msg):
-                return "Model download failed: \(msg)"
-            case .transcriptionFailed(let msg):
-                return "Transcription failed: \(msg)"
-            case .audioBufferEmpty:
-                return "No audio data available for transcription"
-            case .unsupportedLanguage:
-                return "Unsupported language for transcription"
-            case .initializationFailed(let msg):
-                return "Initialization failed: \(msg)"
+            case .modelNotLoaded:           return "Whisper model not loaded"
+            case .modelDownloadFailed(let m): return "Download failed: \(m)"
+            case .transcriptionFailed(let m): return "Transcription failed: \(m)"
+            case .audioBufferEmpty:          return "No audio data available"
+            case .unsupportedLanguage:       return "Unsupported language"
+            case .initializationFailed(let m): return "Init failed: \(m)"
             }
         }
     }
-    
+
     struct TranscriptionResult {
         let text: String
         let timestamp: Date
@@ -41,349 +37,161 @@ final class WhisperTranscriber: ObservableObject {
         let isFinal: Bool
         let audioDuration: TimeInterval
     }
-    
-    struct VoiceCommand {
-        let pattern: String
-        let replacement: String
-    }
-    
-    // MARK: - Voice Commands
-    
-    static let defaultVoiceCommands: [VoiceCommand] = [
-        VoiceCommand(pattern: "\\bperiod\\b\\.?\\s*$", replacement: "."),
-        VoiceCommand(pattern: "\\bcomma\\b,?\\s*$", replacement: ","),
-        VoiceCommand(pattern: "\\bquestion mark\\b\\??\\s*$", replacement: "?"),
-        VoiceCommand(pattern: "\\bexclamation mark\\b!?\\s*$", replacement: "!"),
-        VoiceCommand(pattern: "\\bnew line\\b\\s*$", replacement: "\n"),
-        VoiceCommand(pattern: "\\bnew paragraph\\b\\s*$", replacement: "\n\n"),
-        VoiceCommand(pattern: "\\bdelete last word\\b\\s*$", replacement: "<<BACKSPACE>>"),
-        VoiceCommand(pattern: "\\bbackspace\\b\\s*$", replacement: "<<BACKSPACE>>"),
-        VoiceCommand(pattern: "\\bundo\\b\\s*$", replacement: "<<UNDO>>"),
-    ]
-    
-    // MARK: - Properties
-    
+
+    // MARK: - Published Properties
+
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isTranscribing = false
     @Published private(set) var currentModel: WhisperModelType = .base
     @Published var lastResult: TranscriptionResult?
     @Published private(set) var downloadProgress: Double = 0
-    
-    private var whisper: WhisperKit?
-    private var currentModelType: WhisperModelType = .base
-    
+
+    // MARK: - Internal
+
+    private var whisperKit: WhisperKit?
     private let modelManager: ModelManager
-    private var audioProcessor: AudioProcessor
-    private var voiceCommands: [VoiceCommand]
-    
+    private let audioProcessor: AudioProcessor
+
+    let transcriptionQueue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
+
     // Callbacks
     var onTranscriptionResult: ((TranscriptionResult) -> Void)?
-    var onPartialTranscription: ((String) -> Void)?
     var onError: ((TranscriptionError) -> Void)?
     var onModelLoaded: (() -> Void)?
-    
-    // Thread safety
-    let transcriptionQueue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
-    private var cancellables = Set<AnyCancellable>()
-    
+
     // MARK: - Initialization
-    
-    init(modelManager: ModelManager? = nil, voiceCommands: [VoiceCommand]? = nil) {
+
+    init(modelManager: ModelManager? = nil) {
         self.modelManager = modelManager ?? ModelManager()
         self.audioProcessor = AudioProcessor()
-        self.voiceCommands = voiceCommands ?? Self.defaultVoiceCommands
-        self.currentModelType = modelManager?.selectedModel ?? .base
-        
-        setupModelManagerCallbacks()
     }
-    
-    // MARK: - Public Methods
-    
-    /// Load the Whisper model for transcription
-    /// - Parameter modelType: Model size to load (default: base)
-    /// - Returns: Async throwable result
+
+    convenience init() {
+        self.init(modelManager: nil)
+    }
+
+    // MARK: - Model Lifecycle
+
+    /// Load a Whisper model. Downloads it first if necessary.
     func loadModel(_ modelType: WhisperModelType = .base) async throws {
         await MainActor.run {
             isTranscribing = true
+            downloadProgress = 0
         }
-        
+
         do {
-            print("[WhisperTranscriber] Loading \(modelType.rawValue) model...")
-            
-            // Check if model is downloaded
-            let isDownloaded = try await modelManager.isModelDownloaded(modelType)
-            
-            if !isDownloaded {
-                print("[WhisperTranscriber] Model not found, downloading...")
-                try await modelManager.downloadModel(modelType) { progress in
-                    Task { @MainActor in
-                        self.downloadProgress = progress
-                    }
+            print("[WhisperTranscriber] Loading \(modelType.displayName) model…")
+
+            if !modelManager.isModelDownloaded(modelType) {
+                print("[WhisperTranscriber] Model not cached – downloading…")
+                try await modelManager.downloadModel(modelType) { [weak self] progress in
+                    Task { @MainActor in self?.downloadProgress = progress }
                 }
             }
-            
-            // Initialize WhisperKit (handles model downloading automatically)
-            try await initializeWhisperKit(modelType: modelType)
-            
-            currentModelType = modelType
-            
+
+            // Initialize WhisperKit
+            let config = WhisperKitConfig(model: modelType.modelId)
+            whisperKit = try await WhisperKit(config)
+
             await MainActor.run {
                 isModelLoaded = true
                 isTranscribing = false
                 currentModel = modelType
             }
-            
-            print("[WhisperTranscriber] Model loaded successfully: \(modelType.rawValue)")
+
+            print("[WhisperTranscriber] Model loaded: \(modelType.displayName)")
             onModelLoaded?()
-            
+
         } catch {
-            await MainActor.run {
-                isTranscribing = false
-            }
+            await MainActor.run { isTranscribing = false }
             throw TranscriptionError.initializationFailed(error.localizedDescription)
         }
     }
-    
-    /// Transcribe audio samples
-    /// - Parameter audioSamples: Raw audio samples as Float array
-    /// - Returns: TranscriptionResult with transcribed text
+
+    func unloadModel() {
+        whisperKit = nil
+        Task { @MainActor in
+            isModelLoaded = false
+        }
+        print("[WhisperTranscriber] Model unloaded")
+    }
+
+    // MARK: - Transcription
+
+    /// Transcribe an array of Float32 audio samples (16 kHz, mono).
     func transcribe(_ audioSamples: [Float]) async throws -> TranscriptionResult {
-        guard isModelLoaded, let _ = whisper else {
+        guard isModelLoaded, let kit = whisperKit else {
             throw TranscriptionError.modelNotLoaded
         }
-        
         guard !audioSamples.isEmpty else {
             throw TranscriptionError.audioBufferEmpty
         }
-        
-        await MainActor.run {
-            isTranscribing = true
+
+        await MainActor.run { isTranscribing = true }
+
+        let processed = audioProcessor.process(audioSamples)
+
+        do {
+            let options = DecodingOptions(
+                language: nil,  // auto-detect
+                temperature: 0.0,
+                temperatureFallbackCount: 3,
+                sampleLength: 224,
+                usePrefillPrompt: true,
+                usePrefillCache: true,
+                skipSpecialTokens: true,
+                withoutTimestamps: true
+            )
+
+            let segments = try await kit.transcribe(audioArray: processed, decodeOptions: options)
+            let text = segments.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let result = TranscriptionResult(
+                text: text,
+                timestamp: Date(),
+                confidence: nil,
+                isFinal: true,
+                audioDuration: Double(processed.count) / 16000.0
+            )
+
+            await MainActor.run {
+                lastResult = result
+                isTranscribing = false
+            }
+
+            onTranscriptionResult?(result)
+            return result
+
+        } catch {
+            await MainActor.run { isTranscribing = false }
+            throw TranscriptionError.transcriptionFailed(error.localizedDescription)
         }
-        
-        // Process audio (normalize, etc.)
-        let processedSamples = audioProcessor.process(audioSamples)
-        
-        // Create audio buffer (for future WhisperKit implementation)
-        _ = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
-        
-        // Run transcription using WhisperKit
-        // TODO: Implement actual WhisperKit transcription
-        let transcriptionResult = TranscriptionResult(
-            text: "Transcription placeholder",
-            timestamp: Date(),
-            confidence: nil,
-            isFinal: true,
-            audioDuration: Double(processedSamples.count) / 16000.0
-        )
-        
-        // Apply voice commands
-        let processedText = applyVoiceCommands(transcriptionResult.text)
-        
-        let finalResult = TranscriptionResult(
-            text: processedText,
-            timestamp: Date(),
-            confidence: transcriptionResult.confidence,
-            isFinal: true,
-            audioDuration: transcriptionResult.audioDuration
-        )
-        
-        await MainActor.run {
-            lastResult = finalResult
-            isTranscribing = false
-        }
-        
-        onTranscriptionResult?(finalResult)
-        
-        return finalResult
     }
-    
-    /// Transcribe audio data
-    /// - Parameter audioData: Raw audio data
-    /// - Returns: TranscriptionResult with transcribed text
+
+    /// Transcribe raw audio Data (Float32 PCM at 16 kHz).
     func transcribe(_ audioData: Data) async throws -> TranscriptionResult {
         guard let samples = audioProcessor.process(audioData) else {
             throw TranscriptionError.audioBufferEmpty
         }
         return try await transcribe(samples)
     }
-    
-    /// Transcribe with streaming (for real-time feedback)
-    /// - Parameters:
-    ///   - audioSamples: Audio samples to transcribe
-    ///   - progress: Callback for partial results
-    /// - Returns: Final transcription result
-    func transcribeStreaming(
-        _ audioSamples: [Float],
-        progress: @escaping (String) -> Void
-    ) async throws -> TranscriptionResult {
-        guard isModelLoaded, let _ = whisper else {
-            throw TranscriptionError.modelNotLoaded
-        }
-        
-        await MainActor.run {
-            isTranscribing = true
-        }
-        
-        let processedSamples = audioProcessor.process(audioSamples)
-        _ = Data(bytes: processedSamples, count: processedSamples.count * MemoryLayout<Float>.size)
-        
-        // Use WhisperKit's transcription
-        // TODO: Implement actual WhisperKit transcription
-        let finalText = applyVoiceCommands("Streaming transcription placeholder")
-        
-        let transcriptionResult = TranscriptionResult(
-            text: finalText,
-            timestamp: Date(),
-            confidence: nil,
-            isFinal: true,
-            audioDuration: Double(processedSamples.count) / 16000.0
-        )
-        
-        await MainActor.run {
-            lastResult = transcriptionResult
-            isTranscribing = false
-        }
-        
-        progress(finalText)
-        onTranscriptionResult?(transcriptionResult)
-        
-        return transcriptionResult
+
+    // MARK: - Convenience
+
+    var currentTranscription: String {
+        lastResult?.text ?? ""
     }
-    
-    /// Unload model to free memory
-    func unloadModel() {
-        whisper = nil
-        
-        Task { @MainActor in
-            isModelLoaded = false
-            currentModel = .base
-        }
-        
-        print("[WhisperTranscriber] Model unloaded")
+
+    var isProcessing: Bool {
+        isTranscribing
     }
-    
-    /// Get available model sizes
+
     func getAvailableModels() -> [WhisperModelType] {
-        return [.tiny, .base, .small]
+        WhisperModelType.allCases
     }
-    
-    /// Add custom voice command
-    /// - Parameter command: Voice command to add
-    func addVoiceCommand(_ command: VoiceCommand) {
-        voiceCommands.append(command)
-    }
-    
-    /// Remove voice command by pattern
-    /// - Parameter pattern: Pattern to match and remove
-    func removeVoiceCommand(pattern: String) {
-        voiceCommands.removeAll { $0.pattern == pattern }
-    }
-    
-    /// Get all voice commands
-    func getVoiceCommands() -> [VoiceCommand] {
-        return voiceCommands
-    }
-    
-    /// Set voice commands
-    /// - Parameter commands: Array of voice commands
-    func setVoiceCommands(_ commands: [VoiceCommand]) {
-        self.voiceCommands = commands
-    }
-    
-    // MARK: - Memory Management
-    
-    /// Signal memory warning - should release non-essential resources
+
     func handleMemoryWarning() {
-        print("[WhisperTranscriber] Memory warning received")
+        print("[WhisperTranscriber] Memory warning – unloading model")
         unloadModel()
-    }
-    
-    // MARK: - Private Methods
-    
-    private func setupModelManagerCallbacks() {
-        modelManager.onDownloadProgress = { [weak self] progress in
-            Task { @MainActor in
-                self?.downloadProgress = progress
-            }
-        }
-    }
-    
-    private func initializeWhisperKit(modelType: WhisperModelType) async throws {
-        // Initialize WhisperKit with the correct config
-        let config = WhisperKitConfig(model: modelType.rawValue)
-        
-        whisper = try await WhisperKit(config)
-        
-        // Note: AutomaticSpeechRecognizer is not part of WhisperKit
-        // Transcription is done directly through WhisperKit instance
-    }
-    
-    private func applyVoiceCommands(_ text: String) -> String {
-        var processedText = text
-        
-        for command in voiceCommands {
-            if let regex = try? NSRegularExpression(pattern: command.pattern, options: .caseInsensitive) {
-                let range = NSRange(processedText.startIndex..., in: processedText)
-                processedText = regex.stringByReplacingMatches(
-                    in: processedText,
-                    options: [],
-                    range: range,
-                    withTemplate: command.replacement
-                )
-            }
-        }
-        
-        return processedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-// MARK: - Convenience Initializers
-
-extension WhisperTranscriber {
-    /// Create transcriber with default settings
-    convenience init() {
-        self.init(modelManager: nil, voiceCommands: nil)
-    }
-    
-    /// Create transcriber with specific model
-    convenience init(modelType: WhisperModelType) {
-        self.init(modelManager: nil, voiceCommands: nil)
-        Task {
-            try? await loadModel(modelType)
-        }
-    }
-}
-
-// MARK: - Model Type Alias for compatibility
-
-enum WhisperModelType: String, CaseIterable, Identifiable {
-    case tiny = "whisper-tiny"
-    case base = "whisper-base"
-    case small = "whisper-small"
-    
-    var id: String { rawValue }
-    
-    var displayName: String {
-        switch self {
-        case .tiny: return "Tiny"
-        case .base: return "Base"
-        case .small: return "Small"
-        }
-    }
-    
-    var estimatedSize: String {
-        switch self {
-        case .tiny: return "~39 MB"
-        case .base: return "~75 MB"
-        case .small: return "~244 MB"
-        }
-    }
-    
-    var recommendedUse: String {
-        switch self {
-        case .tiny: return "Fast, lower accuracy"
-        case .base: return "Balanced speed/accuracy"
-        case .small: return "Better accuracy, slower"
-        }
     }
 }

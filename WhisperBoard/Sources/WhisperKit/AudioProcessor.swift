@@ -70,7 +70,7 @@ final class AudioProcessor {
     }
     
     /// Convert Data to Float array
-    private func dataToFloat(_ data: Data) -> [Float] {
+    func dataToFloat(_ data: Data) -> [Float] {
         let count = data.count / MemoryLayout<Float>.size
         var samples = [Float](repeating: 0, count: count)
         _ = samples.withUnsafeMutableBytes { buffer in

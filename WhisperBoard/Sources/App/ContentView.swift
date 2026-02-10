@@ -1,37 +1,30 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var service = TranscriptionService.shared
+    @StateObject private var modelManager = ModelManager()
     @State private var showSettings = false
-    
+
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Header
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("WhisperBoard")
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                            
-                            Spacer()
-                        }
-                        
-                        Text("Speech-to-text keyboard powered by Whisper")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 20)
-                    
-                    // Setup Instructions Card
-                    SetupInstructionsView()
-                    
-                    // Features Card
-                    FeaturesView()
-                    
-                    // Model Status Card
-                    ModelStatusCard()
-                    
+                VStack(alignment: .leading, spacing: 20) {
+
+                    // ── Header ──
+                    header
+
+                    // ── Transcription Service Card ──
+                    serviceCard
+
+                    // ── Setup Instructions ──
+                    setupCard
+
+                    // ── Model Status ──
+                    modelCard
+
+                    // ── Features ──
+                    featuresCard
+
                     Spacer(minLength: 40)
                 }
                 .padding()
@@ -40,219 +33,233 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
+                    Button { showSettings = true } label: {
                         Image(systemName: "gearshape.fill")
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
-                SettingsView(transcriber: WhisperTranscriber())
+                SettingsView()
             }
         }
-        .navigationViewStyle(.stack)
     }
-}
 
-struct SetupInstructionsView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    // ──────────────────────────────────────────────
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WhisperBoard")
+                .font(.largeTitle).fontWeight(.bold)
+            Text("On-device speech-to-text keyboard powered by Whisper")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .padding(.top, 12)
+    }
+
+    // ── Service Status ──
+
+    private var serviceCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Transcription Service", systemImage: "waveform.circle.fill")
+                .font(.headline)
+
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(service.isRunning ? Color.green : Color.red)
+                    .frame(width: 10, height: 10)
+                Text(service.isRunning ? "Running" : "Stopped")
+                    .font(.subheadline)
+                    .foregroundStyle(service.isRunning ? .primary : .secondary)
+                Spacer()
+                Button(service.isRunning ? "Stop" : "Start") {
+                    service.isRunning ? service.stop() : service.start()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if service.isModelLoaded {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.caption)
+                    Text("Model loaded – ready to transcribe")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if service.modelLoadProgress > 0 && service.modelLoadProgress < 1 {
+                ProgressView(value: service.modelLoadProgress)
+                    .progressViewStyle(.linear)
+            }
+
+            if service.isTranscribing {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Transcribing…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            if !service.lastTranscription.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last transcription:")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                    Text(service.lastTranscription)
+                        .font(.callout)
+                        .lineLimit(3)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.tertiarySystemFill))
+                        .cornerRadius(8)
+                }
+            }
+
+            Text(service.statusMessage)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .cardStyle()
+    }
+
+    // ── Setup ──
+
+    private var setupCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
             Label("Keyboard Setup", systemImage: "keyboard")
                 .font(.headline)
-            
-            VStack(alignment: .leading, spacing: 12) {
-                SetupStepView(number: 1, title: "Open Settings", description: "Go to Settings > General > Keyboard > Keyboards")
-                SetupStepView(number: 2, title: "Add New Keyboard", description: "Tap \"Add New Keyboard...\" and select \"WhisperBoard\"")
-                SetupStepView(number: 3, title: "Enable Full Access", description: "Tap WhisperBoard and enable \"Allow Full Access\" for microphone access")
-                SetupStepView(number: 4, title: "Start Dictating", description: "Switch to WhisperBoard keyboard and tap the microphone button")
-            }
-            
-            Button(action: openKeyboardSettings) {
-                HStack {
-                    Image(systemName: "gear")
-                    Text("Open Keyboard Settings")
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(16)
-    }
-    
-    func openKeyboardSettings() {
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
-        }
-    }
-}
 
-struct SetupStepView: View {
-    let number: Int
-    let title: String
-    let description: String
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.blue))
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-}
+            SetupStep(n: 1, title: "Open Settings",   detail: "Settings → General → Keyboard → Keyboards")
+            SetupStep(n: 2, title: "Add Keyboard",    detail: "Tap "Add New Keyboard…" → select WhisperBoard")
+            SetupStep(n: 3, title: "Allow Full Access", detail: "Enable Full Access for microphone permissions")
+            SetupStep(n: 4, title: "Start Dictating",  detail: "Switch to WhisperBoard and tap the mic button")
 
-struct FeaturesView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Features", systemImage: "star.fill")
-                .font(.headline)
-            
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                FeatureCardView(icon: "mic.fill", title: "Voice Input", color: .red)
-                FeatureCardView(icon: "bolt.fill", title: "Fast Processing", color: .yellow)
-                FeatureCardView(icon: "lock.shield.fill", title: "Private & Offline", color: .green)
-                FeatureCardView(icon: "iphone", title: "On-Device", color: .blue)
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(16)
-    }
-}
-
-struct FeatureCardView: View {
-    let icon: String
-    let title: String
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(color)
-            Text(title)
-                .font(.caption)
-                .fontWeight(.medium)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color(UIColor.tertiarySystemBackground))
-        .cornerRadius(12)
-    }
-}
-
-struct ModelStatusCard: View {
-    @StateObject private var modelManager = ModelManager()
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Model Status", systemImage: "cpu")
-                .font(.headline)
-            
-            HStack(spacing: 16) {
-                ForEach(WhisperModelType.allCases) { model in
-                    ModelStatusBadge(
-                        model: model,
-                        isDownloaded: modelManager.downloadedModels.contains(model),
-                        isSelected: modelManager.selectedModel == model
-                    )
-                }
-            }
-            
-            HStack {
-                Text("Storage Used:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(modelManager.getFormattedStorageUsed())
-                    .font(.caption)
-                    .fontWeight(.medium)
-            }
-            
             Button {
-                if let url = URL(string: "UIApplication.openSettingsURLString") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
             } label: {
-                Text("Enable Keyboard")
-                    .font(.callout)
-                    .fontWeight(.medium)
+                Label("Open Settings", systemImage: "gear")
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.1))
-                    .foregroundColor(.blue)
-                    .cornerRadius(8)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .cardStyle()
+    }
+
+    // ── Models ──
+
+    private var modelCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Whisper Model", systemImage: "cpu")
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                ForEach(WhisperModelType.allCases) { model in
+                    ModelBadge(model: model,
+                               isDownloaded: modelManager.downloadedModels.contains(model),
+                               isSelected: modelManager.selectedModel == model)
+                    .onTapGesture { selectModel(model) }
+                }
+            }
+
+            HStack {
+                Text("Storage:").font(.caption).foregroundStyle(.secondary)
+                Text(modelManager.getFormattedStorageUsed()).font(.caption).fontWeight(.medium)
             }
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(16)
+        .cardStyle()
+    }
+
+    // ── Features ──
+
+    private var featuresCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Features", systemImage: "star.fill")
+                .font(.headline)
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                FeatureChip(icon: "mic.fill",          title: "Voice Input",      color: .red)
+                FeatureChip(icon: "bolt.fill",         title: "Fast Processing",  color: .yellow)
+                FeatureChip(icon: "lock.shield.fill",  title: "Private & Offline", color: .green)
+                FeatureChip(icon: "iphone",            title: "On-Device AI",     color: .blue)
+            }
+        }
+        .cardStyle()
+    }
+
+    // ── Helpers ──
+
+    private func selectModel(_ model: WhisperModelType) {
+        if modelManager.isModelDownloaded(model) {
+            modelManager.saveSelectedModel(model)
+        } else {
+            Task {
+                do {
+                    try await modelManager.downloadModel(model)
+                    modelManager.saveSelectedModel(model)
+                } catch {
+                    print("[ContentView] Download failed: \(error)")
+                }
+            }
+        }
     }
 }
 
-struct ModelStatusBadge: View {
-    let model: WhisperModelType
-    let isDownloaded: Bool
-    let isSelected: Bool
-    
+// MARK: - Subviews
+
+private struct SetupStep: View {
+    let n: Int; let title: String; let detail: String
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)")
+                .font(.caption).fontWeight(.bold).foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.accentColor))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline).fontWeight(.semibold)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct ModelBadge: View {
+    let model: WhisperModelType; let isDownloaded: Bool; let isSelected: Bool
     var body: some View {
         VStack(spacing: 4) {
-            Image(systemName: statusIcon)
+            Image(systemName: isSelected ? "checkmark.circle.fill" : isDownloaded ? "checkmark.circle" : "arrow.down.circle")
                 .font(.title3)
-                .foregroundColor(iconColor)
-            
-            Text(model.displayName)
-                .font(.caption2)
-                .fontWeight(.medium)
+                .foregroundStyle(isSelected ? .blue : isDownloaded ? .green : .gray)
+            Text(model.displayName).font(.caption2).fontWeight(.medium)
+            Text(model.estimatedSize).font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .padding(.vertical, 8).padding(.horizontal, 10)
+        .background(isSelected ? Color.blue.opacity(0.12) : Color.clear)
         .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1)
-        )
-    }
-    
-    private var statusIcon: String {
-        if isSelected {
-            return "checkmark.circle.fill"
-        } else if isDownloaded {
-            return "checkmark.circle"
-        } else {
-            return "arrow.down.circle"
-        }
-    }
-    
-    private var iconColor: Color {
-        if isSelected {
-            return .blue
-        } else if isDownloaded {
-            return .green
-        } else {
-            return .gray
-        }
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.blue : .clear, lineWidth: 1))
     }
 }
 
-#Preview {
-    ContentView()
+private struct FeatureChip: View {
+    let icon: String; let title: String; let color: Color
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.title3).foregroundStyle(color)
+            Text(title).font(.caption).fontWeight(.medium)
+        }
+        .frame(maxWidth: .infinity).padding(12)
+        .background(Color(.tertiarySystemBackground)).cornerRadius(10)
+    }
 }
+
+// MARK: - Card Modifier
+
+extension View {
+    func cardStyle() -> some View {
+        self.padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(14)
+    }
+}
+
+#Preview { ContentView() }

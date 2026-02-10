@@ -21,29 +21,50 @@ An iOS keyboard extension that uses OpenAI Whisper locally on-device for fast, p
 
 ## Architecture
 
+The app uses a **split architecture** to stay within Apple's ~50 MB keyboard extension memory limit:
+
+- **Keyboard Extension** (~20 MB) – Full QWERTY layout + voice bar, audio capture, no WhisperKit
+- **Main App** – WhisperKit transcription service, model management, settings
+- **Communication** – App Group shared container + Darwin notifications
+
 ```
 WhisperBoard/
-├── WhisperBoard/                 # Main iOS App (container)
-│   ├── App/                     # App entry point and lifecycle
-│   ├── Sources/
-│   │   ├── App/                 # App delegate and main view
-│   │   ├── KeyboardExtension/   # Keyboard extension
-│   │   │   ├── KeyboardViewController.swift
-│   │   │   ├── AudioCapture.swift       # Audio recording
-│   │   │   ├── AudioProcessor.swift     # Audio preprocessing
-│   │   │   ├── VAD.swift               # Voice Activity Detection
-│   │   │   └── WhisperKitIntegration.swift
-│   │   ├── WhisperKit/          # Whisper integration
-│   │   │   ├── WhisperTranscriber.swift
-│   │   │   └── ModelManager.swift
-│   │   └── Views/               # SwiftUI views
-│   │       ├── SettingsView.swift
-│   │       └── TranscriptionView.swift
-│   └── Resources/                # Assets
-├── WhisperBoardTests/            # Unit tests
-├── WhisperBoard.xcodeproj/      # Xcode project
-├── AppStore/                    # App Store assets
-└── Package.swift                # Swift Package dependencies
+├── WhisperBoard/Sources/
+│   ├── App/                      # Main app
+│   │   ├── WhisperBoardApp.swift
+│   │   ├── ContentView.swift
+│   │   └── TranscriptionService.swift  # Watches for keyboard audio, transcribes
+│   ├── KeyboardExtension/        # Keyboard extension (NO WhisperKit)
+│   │   ├── KeyboardViewController.swift  # Full QWERTY + voice bar
+│   │   ├── AudioCapture.swift            # AVAudioEngine recording
+│   │   └── VAD.swift                     # Voice Activity Detection
+│   ├── Shared/                   # Compiled into both targets
+│   │   └── SharedDefaults.swift          # App Group + Darwin notifications
+│   ├── WhisperKit/               # Main app only
+│   │   ├── WhisperTranscriber.swift
+│   │   ├── ModelManager.swift
+│   │   ├── AudioProcessor.swift
+│   │   └── WhisperModelType.swift
+│   └── Views/                    # Main app SwiftUI views
+│       └── SettingsView.swift
+├── WhisperBoardTests/
+├── project.yml                   # XcodeGen configuration
+└── AppStore/
+```
+
+### Data Flow
+
+```
+Keyboard Extension                    Main App
+─────────────────                    ────────
+1. User taps mic
+2. Record audio (AVAudioEngine)
+3. Save PCM to App Group ──────────► 4. Receive Darwin notification
+                                     5. Load audio from App Group
+                                     6. Transcribe with WhisperKit
+7. Receive Darwin notification ◄──── 7. Write result to App Group
+8. Display text in voice bar
+9. User taps "Insert"
 ```
 
 ## Implementation Roadmap
