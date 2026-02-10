@@ -128,7 +128,7 @@ struct ContentView: View {
                 .font(.headline)
 
             SetupStep(n: 1, title: "Open Settings",   detail: "Settings → General → Keyboard → Keyboards")
-            SetupStep(n: 2, title: "Add Keyboard",    detail: "Tap "Add New Keyboard…" → select WhisperBoard")
+            SetupStep(n: 2, title: "Add Keyboard",    detail: "Tap \"Add New Keyboard…\" → select WhisperBoard")
             SetupStep(n: 3, title: "Allow Full Access", detail: "Enable Full Access for microphone permissions")
             SetupStep(n: 4, title: "Start Dictating",  detail: "Switch to WhisperBoard and tap the mic button")
 
