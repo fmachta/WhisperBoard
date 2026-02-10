@@ -16,7 +16,7 @@ import WhisperKit
 ///
 /// The service also supports manual transcription from within the main app.
 
-actor TranscriptionService: ObservableObject {
+final class TranscriptionService: ObservableObject {
 
     // MARK: - Published State
 
@@ -33,6 +33,7 @@ actor TranscriptionService: ObservableObject {
     private let queue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
     private var audioCapture: AudioCapture?
     private var currentRecordingURL: URL?
+    private let lock = NSLock() // Protects whisperKit access
 
     // MARK: - Singleton
 
@@ -99,7 +100,9 @@ actor TranscriptionService: ObservableObject {
         do {
             let config = WhisperKitConfig(model: resolvedModelId)
             let kit = try await WhisperKit(config)
+            lock.lock()
             whisperKit = kit
+            lock.unlock()
 
             await MainActor.run {
                 isModelLoaded = true
@@ -118,7 +121,9 @@ actor TranscriptionService: ObservableObject {
     }
 
     func unloadModel() {
+        lock.lock()
         whisperKit = nil
+        lock.unlock()
         isModelLoaded = false
         statusMessage = "Model unloaded"
     }
@@ -338,7 +343,11 @@ actor TranscriptionService: ObservableObject {
 
     /// Transcribe raw Float32 audio samples using WhisperKit.
     func transcribe(samples: [Float], language: String = "auto") async throws -> String {
-        guard let kit = whisperKit else {
+        lock.lock()
+        let kit = whisperKit
+        lock.unlock()
+        
+        guard let kit = kit else {
             throw TranscriptionError.modelNotLoaded
         }
 
