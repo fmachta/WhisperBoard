@@ -4,6 +4,7 @@ struct ContentView: View {
     @StateObject private var service = TranscriptionService.shared
     @StateObject private var modelManager = ModelManager()
     @State private var showSettings = false
+    @State private var testText = ""
 
     var body: some View {
         NavigationStack {
@@ -24,6 +25,9 @@ struct ContentView: View {
 
                     // ── Features ──
                     featuresCard
+
+                    // ── Keyboard Test Area ──
+                    testAreaCard
 
                     Spacer(minLength: 40)
                 }
@@ -183,6 +187,34 @@ struct ContentView: View {
                 FeatureChip(icon: "lock.shield.fill",  title: "Private & Offline", color: .green)
                 FeatureChip(icon: "iphone",            title: "On-Device AI",     color: .blue)
             }
+        }
+        .cardStyle()
+    }
+
+    private var testAreaCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Keyboard Test Area", systemImage: "keyboard.fill")
+                .font(.headline)
+
+            Text("Type here to test the keyboard:")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $testText)
+                .frame(minHeight: 120)
+                .padding(8)
+                .background(Color(.tertiarySystemBackground))
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                )
+
+            Button("Clear Text") {
+                testText = ""
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .cardStyle()
     }
