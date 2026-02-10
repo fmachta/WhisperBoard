@@ -86,7 +86,9 @@ final class AudioCapture {
             throw AudioCaptureError.captureInProgress
         }
         
-        let format = setupAudioFormat()
+        guard let format = setupAudioFormat() else {
+            throw AudioCaptureError.engineSetupFailed
+        }
         
         // Configure input node
         inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
@@ -178,13 +180,16 @@ final class AudioCapture {
     
     // MARK: - Private Methods
     
-    private func setupAudioFormat() -> AVAudioFormat {
-        let format = AVAudioFormat(
+    private func setupAudioFormat() -> AVAudioFormat? {
+        guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: sampleRate,
             channels: channels,
             interleaved: false
-        )!
+        ) else {
+            print("[AudioCapture] Failed to create audio format")
+            return nil
+        }
         
         print("[AudioCapture] Audio format: \(Int(sampleRate))Hz, Mono, Float32")
         return format

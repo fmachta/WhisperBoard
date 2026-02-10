@@ -49,7 +49,7 @@ final class ModelManager: ObservableObject {
     @Published var selectedModel: WhisperModelType = .base
     
     // Storage paths
-    private let appGroupIdentifier = "group.com.whisperboard.shared"
+    private let appGroupIdentifier = "group.com.fmachta.whisperboard"
     private let modelsSubdirectory = "WhisperModels"
     
     // Callbacks

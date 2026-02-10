@@ -15,14 +15,6 @@ struct ContentView: View {
                                 .fontWeight(.bold)
                             
                             Spacer()
-                            
-                            Button {
-                                showSettings = true
-                            } label: {
-                                Image(systemName: "gearshape.fill")
-                                    .font(.title2)
-                                    .foregroundColor(.blue)
-                            }
                         }
                         
                         Text("Speech-to-text keyboard powered by Whisper")
