@@ -33,7 +33,14 @@ final class TranscriptionService: ObservableObject {
     private let queue = DispatchQueue(label: "com.whisperboard.transcription", qos: .userInitiated)
     private var audioCapture: AudioCapture?
     private var currentRecordingURL: URL?
-    private let lock = NSLock() // Protects whisperKit access
+    
+    // Thread-safe access to whisperKit using actor
+    private actor WhisperKitStore {
+        var kit: WhisperKit?
+        func setKit(_ newKit: WhisperKit?) { kit = newKit }
+        func getKit() -> WhisperKit? { kit }
+    }
+    private let whisperKitStore = WhisperKitStore()
 
     // MARK: - Singleton
 
@@ -100,9 +107,7 @@ final class TranscriptionService: ObservableObject {
         do {
             let config = WhisperKitConfig(model: resolvedModelId)
             let kit = try await WhisperKit(config)
-            lock.lock()
-            whisperKit = kit
-            lock.unlock()
+            await whisperKitStore.setKit(kit)
 
             await MainActor.run {
                 isModelLoaded = true
@@ -121,11 +126,13 @@ final class TranscriptionService: ObservableObject {
     }
 
     func unloadModel() {
-        lock.lock()
-        whisperKit = nil
-        lock.unlock()
-        isModelLoaded = false
-        statusMessage = "Model unloaded"
+        Task {
+            await whisperKitStore.setKit(nil)
+            await MainActor.run {
+                isModelLoaded = false
+                statusMessage = "Model unloaded"
+            }
+        }
     }
 
     // MARK: - Recording (triggered by keyboard)
@@ -343,11 +350,7 @@ final class TranscriptionService: ObservableObject {
 
     /// Transcribe raw Float32 audio samples using WhisperKit.
     func transcribe(samples: [Float], language: String = "auto") async throws -> String {
-        lock.lock()
-        let kit = whisperKit
-        lock.unlock()
-        
-        guard let kit = kit else {
+        guard let kit = await whisperKitStore.getKit() else {
             throw TranscriptionError.modelNotLoaded
         }
 
