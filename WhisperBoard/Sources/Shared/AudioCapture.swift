@@ -85,8 +85,11 @@ final class AudioCapture {
             throw AudioCaptureError.audioSessionError(error)
         }
         
-        // Setup audio format (16kHz, mono, Float32 for WhisperKit)
-        guard let format = AVAudioFormat(
+        // Get the input node's native format (usually 44.1kHz or 48kHz)
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Setup output format (16kHz, mono, Float32 for WhisperKit)
+        guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: sampleRate,
             channels: channels,
@@ -97,17 +100,30 @@ final class AudioCapture {
         
         // Create output file
         do {
-            outputFile = try AVAudioFile(forWriting: outputURL, settings: format.settings)
+            outputFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings)
         } catch {
             throw AudioCaptureError.fileWriteFailed
         }
         
-        // Install tap on input node
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        // Create converter from input format to output format
+        guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
+            throw AudioCaptureError.engineSetupFailed
+        }
+        
+        // Install tap on input node using the INPUT format (not output format)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self, let outputFile = self.outputFile else { return }
             
+            // Convert buffer from input format to output format (16kHz)
+            guard let convertedBuffer = self.convert(buffer: buffer, using: converter, to: outputFormat) else {
+                self.stateQueue.async {
+                    self.state = .error("Failed to convert audio format")
+                }
+                return
+            }
+            
             do {
-                try outputFile.write(from: buffer)
+                try outputFile.write(from: convertedBuffer)
             } catch {
                 self.stateQueue.async {
                     self.state = .error("Failed to write audio: \(error.localizedDescription)")
@@ -127,6 +143,29 @@ final class AudioCapture {
         } catch {
             throw AudioCaptureError.engineSetupFailed
         }
+    }
+    
+    /// Convert audio buffer from input format to output format
+    private func convert(buffer: AVAudioPCMBuffer, using converter: AVAudioConverter, to outputFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let frameCapacity = AVAudioFrameCount(outputFormat.sampleRate * Double(buffer.frameLength) / buffer.format.sampleRate)
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: frameCapacity) else {
+            return nil
+        }
+        
+        var error: NSError?
+        let status = converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        
+        guard status != .error else {
+            if let error = error {
+                print("[AudioCapture] Conversion error: \(error)")
+            }
+            return nil
+        }
+        
+        return outputBuffer
     }
     
     /// Stop recording

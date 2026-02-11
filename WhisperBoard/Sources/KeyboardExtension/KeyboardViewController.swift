@@ -115,11 +115,13 @@ class KeyboardViewController: UIInputViewController {
     private func startDictation() {
         // Check if main app can record
         let canRecord = SharedDefaults.sharedDefaults?.bool(forKey: "canRecordAudio") ?? false
+        print("[Keyboard] startDictation called, canRecord=\(canRecord)")
         
         if canRecord {
             // Signal main app to start recording
             SharedDefaults.sharedDefaults?.set(true, forKey: "shouldStartRecording")
             SharedDefaults.sharedDefaults?.synchronize()
+            print("[Keyboard] Posting startRecording notification")
             DarwinNotificationCenter.shared.post("com.fmachta.whisperboard.startRecording")
             
             isWaitingForTranscription = true
@@ -130,6 +132,7 @@ class KeyboardViewController: UIInputViewController {
             startPolling()
         } else {
             // Open main app to grant permission/setup
+            print("[Keyboard] Cannot record, opening main app")
             statusLabel.text = "Open WhisperBoard app first"
             openMainApp()
         }

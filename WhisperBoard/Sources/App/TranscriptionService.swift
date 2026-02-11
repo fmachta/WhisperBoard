@@ -61,6 +61,7 @@ final class TranscriptionService: ObservableObject {
         
         // Observe request to start recording (new - keyboard asks main app to record)
         DarwinNotificationCenter.shared.observe("com.fmachta.whisperboard.startRecording") { [weak self] in
+            print("[TranscriptionService] Received startRecording notification from keyboard")
             self?.handleStartRecordingRequest()
         }
 
@@ -145,7 +146,7 @@ final class TranscriptionService: ObservableObject {
     // MARK: - Recording (triggered by keyboard)
     
     private func handleStartRecordingRequest() {
-        print("[TranscriptionService] Received start recording request from keyboard")
+        print("[TranscriptionService] Handling start recording request")
         
         Task {
             await MainActor.run {
@@ -170,10 +171,13 @@ final class TranscriptionService: ObservableObject {
             currentRecordingURL = audioURL
             
             do {
+                print("[TranscriptionService] Starting audio capture to: \(audioURL.path)")
                 try audioCapture?.startRecording(to: audioURL)
+                print("[TranscriptionService] Audio capture started successfully")
                 
                 // Set up callback for when recording finishes
                 audioCapture?.onRecordingFinished = { [weak self] url in
+                    print("[TranscriptionService] Recording finished, processing audio...")
                     Task {
                         await self?.processRecordedAudio(url)
                     }
@@ -316,10 +320,12 @@ final class TranscriptionService: ObservableObject {
                 completedTimestamp: Date().timeIntervalSince1970,
                 error: nil
             )
+            print("[TranscriptionService] Transcription complete: \(text)")
             SharedDefaults.writeResult(result)
             SharedDefaults.clearRequest()
 
             // Notify keyboard
+            print("[TranscriptionService] Notifying keyboard transcription is done")
             DarwinNotificationCenter.shared.post(SharedDefaults.transcriptionDoneNotificationName)
 
             await MainActor.run {
