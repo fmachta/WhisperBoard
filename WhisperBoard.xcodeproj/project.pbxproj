@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -68,20 +68,20 @@
 		1C41AFECB180A72B4AD5AE17 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
 		3139B92E63CD7CB9F915BA4F /* SharedDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDefaults.swift; sourceTree = "<group>"; };
 		3C499664972A8EBAB6E19C26 /* KeyboardAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = KeyboardAssets.xcassets; sourceTree = "<group>"; };
-		43F1A5683B3F4D43743B02D4 /* WhisperBoardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WhisperBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		43F1A5683B3F4D43743B02D4 /* WhisperBoardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhisperBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F7B367D5590BABE4C7EDEA9 /* WhisperBoard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WhisperBoard.entitlements; sourceTree = "<group>"; };
 		55F04A884D902DAB317788D2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5D48F2B375D8AF129272D904 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		5EC48E3BF5E3BBDBD73D739D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		6681DA3BAE98F6A6C101566D /* WhisperBoardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperBoardApp.swift; sourceTree = "<group>"; };
-		6CB1BF08F88329B78A5E18E1 /* WhisperBoardKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WhisperBoardKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6CB1BF08F88329B78A5E18E1 /* WhisperBoardKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WhisperBoardKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6D82879415763BB25A268248 /* AudioProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessor.swift; sourceTree = "<group>"; };
 		7E5BC1E031FBD99D4F5F0249 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		88C9CFAEB480328BB5C666A6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A4A05A3ACD732C33C64E84A5 /* WhisperModelType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelType.swift; sourceTree = "<group>"; };
 		ABA34436F58CF13539ACFA3A /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
 		CD0B98CE69A6855EF432A95A /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
-		CFC12D9CDED37E412668ACDE /* WhisperBoard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WhisperBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CFC12D9CDED37E412668ACDE /* WhisperBoard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WhisperBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E82C555E9A517AB101952A6D /* WhisperKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitTests.swift; sourceTree = "<group>"; };
 		EF1C594547863B31EAFDB9A8 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		FDC4E04F9A85082518FCC090 /* VAD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VAD.swift; sourceTree = "<group>"; };
@@ -277,15 +277,12 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					794C1946E60436B91C2C8A60 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					C5184535C6D53829E53B4BE2 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					FB6C13311FA120ECE0CC98A7 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -303,7 +300,6 @@
 			packageReferences = (
 				F71AA3811D04B846553C7739 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -395,6 +391,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = WhisperBoard/Resources/WhisperBoard.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				INFOPLIST_FILE = WhisperBoard/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -411,6 +408,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WhisperBoard/KeyboardExtension/Resources/KeyboardExtension.entitlements;
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				INFOPLIST_FILE = WhisperBoard/KeyboardExtension/Resources/KeyboardInfo.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -428,6 +426,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -446,6 +445,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = WhisperBoard/Resources/WhisperBoard.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				INFOPLIST_FILE = WhisperBoard/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -462,6 +462,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WhisperBoard/KeyboardExtension/Resources/KeyboardExtension.entitlements;
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				INFOPLIST_FILE = WhisperBoard/KeyboardExtension/Resources/KeyboardInfo.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -536,6 +537,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = BM7X295NAM;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

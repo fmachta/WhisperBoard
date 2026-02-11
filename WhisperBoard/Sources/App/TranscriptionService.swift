@@ -66,6 +66,13 @@ final class TranscriptionService: ObservableObject {
 
         // Mark service as running in shared defaults
         SharedDefaults.sharedDefaults?.set(true, forKey: SharedDefaults.serviceRunningKey)
+        
+        // Check microphone permission and update keyboard
+        Task {
+            let hasPermission = await checkMicrophonePermission()
+            SharedDefaults.sharedDefaults?.set(hasPermission, forKey: "canRecordAudio")
+            SharedDefaults.sharedDefaults?.synchronize()
+        }
 
         // Periodic cleanup of old audio files
         SharedDefaults.cleanupOldAudio()
